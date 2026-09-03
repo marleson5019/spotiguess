@@ -133,9 +133,11 @@ async function ensureSpotifyPlayer(){
         resolve(true);
       });
       player.addListener("not_ready",()=>{spotifyDeviceId=""});
-      player.addListener("initialization_error",({message})=>console.warn("Spotify init error:",message));
-      player.addListener("authentication_error",({message})=>console.warn("Spotify auth error:",message));
-      player.addListener("account_error",({message})=>console.warn("Spotify account error:",message));
+      const fail=message=>{clearTimeout(timeout);reject(new Error(message))};
+      player.addListener("initialization_error",({message})=>fail(message||"Não foi possível iniciar o player do Spotify."));
+      player.addListener("authentication_error",({message})=>fail(message||"O Spotify recusou a autenticação do player."));
+      player.addListener("account_error",()=>fail("A reprodução de músicas completas exige Spotify Premium na conta do host."));
+      player.addListener("playback_error",({message})=>console.warn("Spotify playback error:",message));
     });
 
     const connected=await player.connect();
@@ -315,7 +317,7 @@ function finishSoloRound(optionId){
   }
 }
 
-function startSoloGame(){
+async function startSoloGame(){
   if(!selectedPlaylist){
     msg($("#createMsg"),"Primeiro conecte o Spotify e carregue uma playlist.");
     return;
@@ -325,8 +327,10 @@ function startSoloGame(){
     return;
   }
 
+  msg($("#createMsg"),"Ativando o player do Spotify…","success");
+  const playerReady=await ensureSpotifyPlayer();
+  if(!playerReady){msg($("#createMsg"),"Não foi possível ativar o player. Para tocar qualquer música, use uma conta Spotify Premium e permita a reprodução neste navegador.");return}
   me="solo-player";
-  const previewTracks=selectedPlaylist.tracks.filter(t=>t.previewUrl);
   const soloTracks=selectedPlaylist.tracks;
   const totalRounds=Math.min(selectedRounds, selectedPlaylist.tracks.length);
   room={
@@ -342,14 +346,6 @@ function startSoloGame(){
     finalRanking:[]
   };
   soloState={tracks:soloTracks.slice(0,200),used:new Set(),current:null,answered:false};
-  if(previewTracks.length<4){
-    alert("Sua playlist tem poucas faixas com preview de 30s no Spotify. O solo vai funcionar, mas algumas rodadas podem ficar sem áudio.");
-  }
-  ensureSpotifyPlayer().then(ok=>{
-    if(!ok){
-      alert("Não foi possível ativar o Spotify Web Playback agora. Vamos usar preview quando disponível.");
-    }
-  });
   startSoloCountdown(1);
 }
 
@@ -536,6 +532,9 @@ function showPodium(r){
   $("#again").style.display=room?.hostId===me?"block":"none";
 }
 async function createWithPlaylist(){
+  msg($("#createMsg"),"Ativando o player do host…","success");
+  const playerReady=await ensureSpotifyPlayer();
+  if(!playerReady){msg($("#createMsg"),"Não foi possível ativar o player. O host precisa usar Spotify Premium para tocar trechos aleatórios de todas as músicas.");return}
   connectSocket();
   const p=selectedPlaylist;
   socket.emit("room:create",{name,playlist:p,tracks:p.tracks,totalRounds:selectedRounds},res=>{
