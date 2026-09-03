@@ -6,11 +6,11 @@ import crypto from "crypto";
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: true, credentials: true }
-});
+const allowedOrigins=String(process.env.ALLOWED_ORIGINS||"").split(",").map(x=>x.trim()).filter(Boolean);
+const allowOrigin=(origin,cb)=>cb(null,!origin||!allowedOrigins.length||allowedOrigins.includes(origin));
+const io = new Server(server, { cors: { origin: allowOrigin, credentials: true } });
 
-app.use(cors({ origin: true }));
+app.use(cors({ origin: allowOrigin, credentials:true }));
 app.use(express.json());
 
 const PORT = Number(process.env.PORT || 5020);
@@ -43,7 +43,8 @@ function publicRoom(room) {
       endsAt: room.current.endsAt,
       options: room.current.options
     } : null,
-    results: room.results
+    results: room.results,
+    finalRanking: room.finalRanking || []
   };
 }
 
@@ -59,7 +60,7 @@ io.on("connection", socket => {
     const c = code();
     const id = socket.id;
     const room = {
-      code: c, hostId: id, status:"lobby", round:0, totalRounds: Math.min(10, tracks.length),
+      code: c, hostId: id, status:"lobby", round:0, totalRounds: Math.max(1,Math.min(Number(payload?.totalRounds)||10,20,tracks.length)),
       playlist: {
         id: playlist.id,
         name: String(playlist.name || "Playlist").slice(0, 100),
@@ -106,6 +107,14 @@ io.on("connection", socket => {
     cb?.({ok:true});
     io.to(room.code).emit("room:countdown",{at:countdownAt,round:1,totalRounds:room.totalRounds});
     setTimeout(()=>startRound(room.code),3300);
+  });
+
+  socket.on("room:restart", (payload, cb) => {
+    const room=rooms.get(payload?.code);
+    if(!room || room.hostId!==socket.id) return cb?.({ok:false,error:"Somente o host pode reiniciar."});
+    for(const player of room.players.values()){player.score=0;player.streak=0}
+    room.status="lobby";room.round=0;room.used=new Set();room.answers=new Map();room.current=null;room.results=null;room.finalRanking=[];room.updatedAt=Date.now();
+    cb?.({ok:true});io.to(room.code).emit("room:update",publicRoom(room));
   });
 
   socket.on("answer", (payload, cb) => {
@@ -171,10 +180,8 @@ function startRound(c) {
   room.current={round:room.round,startedAt,endsAt,correctId,options,answerTrack:correct};
   room.results=null;
   room.updatedAt=Date.now();
-  io.to(c).emit("room:round",{
-    round:room.round,totalRounds:room.totalRounds,startedAt,endsAt,options,
-    trackForHost: correct // metadata only; no audio or preview URL
-  });
+  io.to(c).emit("room:round",{round:room.round,totalRounds:room.totalRounds,startedAt,endsAt,options});
+  io.to(room.hostId).emit("room:host-track",{round:room.round,startedAt,track:correct});
   setTimeout(()=>endRound(c,room.round),15300);
 }
 
@@ -192,10 +199,9 @@ function endRound(c,round) {
       correct=a.correct;
       if(correct){
         const elapsed=Math.max(0,Math.min(15000,a.at-current.startedAt));
-        const speed=Math.max(0,Math.min(25,Math.round(25*(1-elapsed/15000))));
+        const speed=Math.max(0,Math.min(100,Math.round(100*(1-elapsed/15000))));
         newStreak=p.streak+1;
-        const streakBonus=Math.min((newStreak-1)*10,50);
-        delta=100+speed+streakBonus;
+        delta=speed;
       }
     }
     p.score+=delta;
@@ -229,4 +235,4 @@ setInterval(()=>{
   for(const room of rooms.values()) cleanRoom(room);
 },60_000);
 
-server.listen(PORT,()=>console.log(`Spotiguess server on http://127.0.0.1:${PORT}`));
+server.listen(PORT,()=>console.log(`SahurGuess server on http://127.0.0.1:${PORT}`));
