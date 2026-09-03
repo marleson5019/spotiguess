@@ -3,7 +3,7 @@ import { io } from "socket.io-client";
 
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || "";
 const REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI || `${location.origin}/`;
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || location.origin;
+const SERVER_URL = import.meta.env.VITE_SERVER_URL || "https://spotiguess-kk1y.onrender.com";
 const API = "https://api.spotify.com/v1";
 const SCOPES = "playlist-read-private playlist-read-collaborative streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state";
 
