@@ -87,6 +87,7 @@ let spotifySDKPromise=null;
 let spotifyPlayer=null;
 let spotifyDeviceId="";
 let spotifyPlayerError="";
+let spotifyCommandQueue=Promise.resolve();
 
 const ROUND_MS=15000;
 const SOLO_COUNTDOWN_MS=3200;
@@ -156,10 +157,12 @@ async function ensureSpotifyPlayer(){
 
 async function pauseSpotifyPlayback(){
   if(!spotifyDeviceId) return;
-  try{
+  const command=spotifyCommandQueue.catch(()=>{}).then(async()=>{
     if(spotifyPlayer){await spotifyPlayer.pause();return}
     await spotifyFetch(`/me/player/pause?device_id=${encodeURIComponent(spotifyDeviceId)}`,{method:"PUT"});
-  }catch{}
+  });
+  spotifyCommandQueue=command.catch(()=>{});
+  try{await command}catch{}
 }
 
 async function playSpotifySnippet(track,nonce){
@@ -173,11 +176,19 @@ async function playSpotifySnippet(track,nonce){
     const maxStart=Math.max(0, durationMs-snippetMs);
     const positionMs=Math.floor(Math.random()*(maxStart+1));
 
-    await spotifyFetch(`/me/player/play?device_id=${encodeURIComponent(spotifyDeviceId)}`,{
-      method:"PUT",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({uris:[track.uri],position_ms:positionMs})
+    const command=spotifyCommandQueue.catch(()=>{}).then(async()=>{
+      if(nonce!==playbackNonce)return false;
+      if(spotifyPlayer)await spotifyPlayer.pause();
+      if(nonce!==playbackNonce)return false;
+      await spotifyFetch(`/me/player/play?device_id=${encodeURIComponent(spotifyDeviceId)}`,{
+        method:"PUT",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({uris:[track.uri],position_ms:positionMs})
+      });
+      return nonce===playbackNonce;
     });
+    spotifyCommandQueue=command.catch(()=>{});
+    if(!await command)return false;
 
     if(nonce!==playbackNonce)return false;
     soloAudioStopTimer=setTimeout(()=>{if(nonce===playbackNonce)pauseSpotifyPlayback()},snippetMs);
@@ -454,11 +465,11 @@ function connectSocket(){
   if(socket?.connected)return;
   socket=io(SERVER_URL,{transports:["websocket","polling"]});
   socket.on("room:update",r=>{room=r;renderLobby()});
-  socket.on("room:countdown",d=>runCountdown(d));
+  socket.on("room:countdown",d=>{stopSoloSnippet();runCountdown(d)});
   socket.on("room:round",d=>runRound(d));
   socket.on("room:host-track",d=>{if(!solo&&room?.hostId===me&&d.track){const wait=Math.max(0,d.startedAt-Date.now());soloAudioStartTimer=setTimeout(()=>playSoloSnippet(d.track),wait)}});
-  socket.on("room:result",r=>{room=r;showResult(r)});
-  socket.on("room:finished",r=>{room=r;showPodium(r)});
+  socket.on("room:result",r=>{stopSoloSnippet();room=r;showResult(r)});
+  socket.on("room:finished",r=>{stopSoloSnippet();room=r;showPodium(r)});
   socket.on("room:closed",d=>{alert(d.message);location.reload()});
 }
 function renderLobby(){
