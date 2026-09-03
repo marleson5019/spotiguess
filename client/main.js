@@ -2,7 +2,7 @@ import "./style.css";
 import { io } from "socket.io-client";
 
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || "";
-const REDIRECT_URI = import.meta.env.VITE_SPOTIFY_REDIRECT_URI || `${location.origin}/`;
+const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).href;
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || "https://spotiguess-kk1y.onrender.com";
 const API = "https://api.spotify.com/v1";
 const SCOPES = "playlist-read-private playlist-read-collaborative streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state";
@@ -85,6 +85,7 @@ let soloAudioStartTimer=null;
 let spotifySDKPromise=null;
 let spotifyPlayer=null;
 let spotifyDeviceId="";
+let spotifyPlayerError="";
 
 const ROUND_MS=15000;
 const SOLO_COUNTDOWN_MS=3200;
@@ -146,6 +147,7 @@ async function ensureSpotifyPlayer(){
     await readyPromise;
     return true;
   }catch(err){
+    spotifyPlayerError=err?.message||"Não foi possível iniciar o player do Spotify.";
     console.warn("Web Playback indisponível:", err?.message||err);
     return false;
   }
@@ -329,7 +331,7 @@ async function startSoloGame(){
 
   msg($("#createMsg"),"Ativando o player do Spotify…","success");
   const playerReady=await ensureSpotifyPlayer();
-  if(!playerReady){msg($("#createMsg"),"Não foi possível ativar o player. Para tocar qualquer música, use uma conta Spotify Premium e permita a reprodução neste navegador.");return}
+  if(!playerReady){msg($("#createMsg"),`${spotifyPlayerError} Para tocar qualquer música, use uma conta Spotify Premium e permita a reprodução neste navegador.`);return}
   me="solo-player";
   const soloTracks=selectedPlaylist.tracks;
   const totalRounds=Math.min(selectedRounds, selectedPlaylist.tracks.length);
@@ -534,7 +536,7 @@ function showPodium(r){
 async function createWithPlaylist(){
   msg($("#createMsg"),"Ativando o player do host…","success");
   const playerReady=await ensureSpotifyPlayer();
-  if(!playerReady){msg($("#createMsg"),"Não foi possível ativar o player. O host precisa usar Spotify Premium para tocar trechos aleatórios de todas as músicas.");return}
+  if(!playerReady){msg($("#createMsg"),`${spotifyPlayerError} O host precisa usar Spotify Premium para tocar trechos aleatórios de todas as músicas.`);return}
   connectSocket();
   const p=selectedPlaylist;
   socket.emit("room:create",{name,playlist:p,tracks:p.tracks,totalRounds:selectedRounds},res=>{

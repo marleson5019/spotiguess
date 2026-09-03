@@ -30,11 +30,10 @@ Importe o repositório. O arquivo `netlify.toml` já define o build e a pasta pu
 
 ```text
 VITE_SPOTIFY_CLIENT_ID=seu_client_id
-VITE_SPOTIFY_REDIRECT_URI=https://seu-site.netlify.app/
 VITE_SERVER_URL=https://spotiguess-kk1y.onrender.com
 ```
 
-Cadastre a mesma `VITE_SPOTIFY_REDIRECT_URI`, exatamente igual e com HTTPS, no Spotify Developer Dashboard.
+O site calcula automaticamente a Redirect URI a partir do domínio em que foi aberto. Cadastre no Spotify Developer Dashboard, exatamente com a barra final: `https://spotiguess-two.vercel.app/` e, para o GitHub Pages, `https://marleson5019.github.io/spotiguess/`.
 
 ## Áudio do Spotify
 
