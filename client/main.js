@@ -82,6 +82,7 @@ let soloState=null;
 let soloAudio=null;
 let soloAudioStopTimer=null;
 let soloAudioStartTimer=null;
+let playbackNonce=0;
 let spotifySDKPromise=null;
 let spotifyPlayer=null;
 let spotifyDeviceId="";
@@ -156,11 +157,12 @@ async function ensureSpotifyPlayer(){
 async function pauseSpotifyPlayback(){
   if(!spotifyDeviceId) return;
   try{
+    if(spotifyPlayer){await spotifyPlayer.pause();return}
     await spotifyFetch(`/me/player/pause?device_id=${encodeURIComponent(spotifyDeviceId)}`,{method:"PUT"});
   }catch{}
 }
 
-async function playSpotifySnippet(track){
+async function playSpotifySnippet(track,nonce){
   if(!track?.uri || (!solo && room?.hostId!==me)) return false;
   const ready=await ensureSpotifyPlayer();
   if(!ready || !spotifyDeviceId) return false;
@@ -171,18 +173,14 @@ async function playSpotifySnippet(track){
     const maxStart=Math.max(0, durationMs-snippetMs);
     const positionMs=Math.floor(Math.random()*(maxStart+1));
 
-    await spotifyFetch("/me/player",{
-      method:"PUT",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({device_ids:[spotifyDeviceId],play:true})
-    });
     await spotifyFetch(`/me/player/play?device_id=${encodeURIComponent(spotifyDeviceId)}`,{
       method:"PUT",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({uris:[track.uri],position_ms:positionMs})
     });
 
-    soloAudioStopTimer=setTimeout(()=>{pauseSpotifyPlayback()},snippetMs);
+    if(nonce!==playbackNonce)return false;
+    soloAudioStopTimer=setTimeout(()=>{if(nonce===playbackNonce)pauseSpotifyPlayback()},snippetMs);
     return true;
   }catch(err){
     console.warn("Falha no playback completo, usando preview:", err?.message||err);
@@ -191,6 +189,7 @@ async function playSpotifySnippet(track){
 }
 
 function stopSoloSnippet(){
+  playbackNonce++;
   if(soloAudioStartTimer){
     clearTimeout(soloAudioStartTimer);
     soloAudioStartTimer=null;
@@ -208,12 +207,16 @@ function stopSoloSnippet(){
 }
 
 async function playSoloSnippet(track){
-  stopSoloSnippet();
   if(!track || (!solo && room?.hostId!==me)) return;
 
-  const playedFullTrack=await playSpotifySnippet(track);
+  const nonce=++playbackNonce;
+  if(soloAudioStartTimer){clearTimeout(soloAudioStartTimer);soloAudioStartTimer=null}
+  if(soloAudioStopTimer){clearTimeout(soloAudioStopTimer);soloAudioStopTimer=null}
+  if(soloAudio){soloAudio.pause();soloAudio.src="";soloAudio=null}
+
+  const playedFullTrack=await playSpotifySnippet(track,nonce);
   if(playedFullTrack) return;
-  if(!track.previewUrl) return;
+  if(nonce!==playbackNonce||!track.previewUrl) return;
 
   const audio=new Audio(track.previewUrl);
   audio.preload="auto";
@@ -225,7 +228,7 @@ async function playSoloSnippet(track){
       audio.currentTime=startAt;
       await audio.play();
       soloAudioStopTimer=setTimeout(()=>{
-        if(audio===soloAudio) audio.pause();
+        if(nonce===playbackNonce&&audio===soloAudio) audio.pause();
       },snippetMs);
     }catch{
       // Browser may block autoplay if the tab lost user activation.
