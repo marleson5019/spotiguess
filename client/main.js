@@ -173,7 +173,7 @@ async function playSpotifySnippet(track,nonce,sharedPositionMs=null){
   if(!ready || !spotifyDeviceId) return false;
 
   try{
-    const snippetMs=7000;
+    const snippetMs=ROUND_MS;
     const durationMs=Math.max(1000, Number(track.durationMs)||30000);
     const maxStart=Math.max(0, durationMs-snippetMs);
     const positionMs=Number.isFinite(sharedPositionMs)?Math.max(0,Math.min(sharedPositionMs,maxStart)):Math.floor(Math.random()*(maxStart+1));
@@ -235,7 +235,7 @@ async function playSoloSnippet(track,sharedPositionMs=null){
   audio.preload="auto";
   audio.addEventListener("loadedmetadata", async ()=>{
     try{
-      const snippetMs=7000;
+      const snippetMs=ROUND_MS;
       const maxStart=Math.max(0, (audio.duration||30)-snippetMs/1000);
       const startAt=Math.random()*maxStart;
       audio.currentTime=startAt;

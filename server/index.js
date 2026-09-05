@@ -113,7 +113,8 @@ io.on("connection", socket => {
     const room=rooms.get(payload?.code);
     if(!room || room.hostId!==socket.id) return cb?.({ok:false,error:"Somente o host pode reiniciar."});
     for(const player of room.players.values()){player.score=0;player.streak=0}
-    room.status="lobby";room.round=0;room.used=new Set();room.answers=new Map();room.current=null;room.results=null;room.finalRanking=[];room.updatedAt=Date.now();
+    if(room.roundTimer)clearTimeout(room.roundTimer);
+    room.roundTimer=null;room.status="lobby";room.round=0;room.used=new Set();room.answers=new Map();room.current=null;room.results=null;room.finalRanking=[];room.updatedAt=Date.now();
     cb?.({ok:true});io.to(room.code).emit("room:update",publicRoom(room));
   });
 
@@ -128,6 +129,7 @@ io.on("connection", socket => {
     const correct=answerId===correctId;
     room.answers.set(socket.id,{optionId:answerId,at,correct});
     cb?.({ok:true});
+    if(room.answers.size>=room.players.size)setTimeout(()=>endRound(room.code,room.round),150);
   });
 
   socket.on("room:leave", payload => {
@@ -146,6 +148,7 @@ io.on("connection", socket => {
 function leaveRoom(socket, room) {
   room.players.delete(socket.id);
   if (room.hostId === socket.id) {
+    if(room.roundTimer)clearTimeout(room.roundTimer);
     room.status="finished";
     room.results=null;
     io.to(room.code).emit("room:closed",{message:"O host saiu da sala."});
@@ -154,6 +157,7 @@ function leaveRoom(socket, room) {
   }
   room.updatedAt=Date.now();
   io.to(room.code).emit("room:update",publicRoom(room));
+  if(room.status==="playing"&&room.players.size>0&&room.answers.size>=room.players.size)setTimeout(()=>endRound(room.code,room.round),150);
 }
 
 function startRound(c) {
@@ -181,16 +185,19 @@ function startRound(c) {
   room.results=null;
   room.updatedAt=Date.now();
   io.to(c).emit("room:round",{round:room.round,totalRounds:room.totalRounds,startedAt,endsAt,options});
-  const snippetMs=7000;
+  const snippetMs=15000;
   const maxStart=Math.max(0,(Number(correct.durationMs)||30000)-snippetMs);
   const positionMs=crypto.randomInt(maxStart+1);
   io.to(c).emit("room:track",{round:room.round,startedAt,positionMs,track:{uri:correct.uri,durationMs:correct.durationMs}});
-  setTimeout(()=>endRound(c,room.round),16600);
+  const scheduledRound=room.round;
+  room.roundTimer=setTimeout(()=>endRound(c,scheduledRound),16600);
 }
 
 function endRound(c,round) {
   const room=rooms.get(c);
   if(!room || room.status!=="playing" || room.round!==round) return;
+  if(room.roundTimer)clearTimeout(room.roundTimer);
+  room.roundTimer=null;
   const current=room.current;
   const results=[];
   for(const p of room.players.values()){
