@@ -69,7 +69,7 @@ io.on("connection", socket => {
       },
       // Immediate-use room state only. No Spotify token is ever sent to the server.
       tracks: tracks.slice(0, 200).map(t => ({
-        id:t.id, name:t.name, artists:t.artists, album:t.album || "", image:t.image || "", uri:t.uri
+        id:t.id, name:t.name, artists:t.artists, album:t.album || "", image:t.image || "", uri:t.uri, durationMs:Number(t.durationMs)||0
       })),
       players:new Map([[id,{id,name,score:0,streak:0}]]),
       answers:new Map(), current:null, results:null, updatedAt:Date.now()
@@ -175,14 +175,17 @@ function startRound(c) {
   const options=opts.map((t,i)=>({id:String(i),label:`${t.name} — ${t.artists}`}));
   const correctId=String(options.findIndex(o=>o.label===`${correct.name} — ${correct.artists}`));
 
-  const startedAt=Date.now()+250;
+  const startedAt=Date.now()+1500;
   const endsAt=startedAt+15000;
   room.current={round:room.round,startedAt,endsAt,correctId,options,answerTrack:correct};
   room.results=null;
   room.updatedAt=Date.now();
   io.to(c).emit("room:round",{round:room.round,totalRounds:room.totalRounds,startedAt,endsAt,options});
-  io.to(room.hostId).emit("room:host-track",{round:room.round,startedAt,track:correct});
-  setTimeout(()=>endRound(c,room.round),15300);
+  const snippetMs=7000;
+  const maxStart=Math.max(0,(Number(correct.durationMs)||30000)-snippetMs);
+  const positionMs=crypto.randomInt(maxStart+1);
+  io.to(c).emit("room:track",{round:room.round,startedAt,positionMs,track:{uri:correct.uri,durationMs:correct.durationMs}});
+  setTimeout(()=>endRound(c,room.round),16600);
 }
 
 function endRound(c,round) {

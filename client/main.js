@@ -36,7 +36,8 @@ app.innerHTML=`
   <div class="top"><span class="back" data-back>← voltar</span></div>
   <span class="eyebrow">ENTRAR</span><h2>Código da sala</h2>
   <input id="roomCode" maxlength="6" inputmode="numeric" style="text-align:center;font:900 30px ui-monospace,monospace;letter-spacing:.2em" placeholder="------">
-  <div id="joinMsg"></div><button class="btn primary" id="joinRoom">Entrar</button>
+  <div id="joinMsg"></div><button class="btn primary" id="joinRoom">Conectar Spotify e entrar</button>
+  <p class="hint">Cada jogador precisa usar sua própria conta Spotify Premium autorizada no aplicativo.</p>
 </section>
 
 <section class="screen" id="lobby">
@@ -165,8 +166,8 @@ async function pauseSpotifyPlayback(){
   try{await command}catch{}
 }
 
-async function playSpotifySnippet(track,nonce){
-  if(!track?.uri || (!solo && room?.hostId!==me)) return false;
+async function playSpotifySnippet(track,nonce,sharedPositionMs=null){
+  if(!track?.uri) return false;
   const ready=await ensureSpotifyPlayer();
   if(!ready || !spotifyDeviceId) return false;
 
@@ -174,7 +175,7 @@ async function playSpotifySnippet(track,nonce){
     const snippetMs=7000;
     const durationMs=Math.max(1000, Number(track.durationMs)||30000);
     const maxStart=Math.max(0, durationMs-snippetMs);
-    const positionMs=Math.floor(Math.random()*(maxStart+1));
+    const positionMs=Number.isFinite(sharedPositionMs)?Math.max(0,Math.min(sharedPositionMs,maxStart)):Math.floor(Math.random()*(maxStart+1));
 
     const command=spotifyCommandQueue.catch(()=>{}).then(async()=>{
       if(nonce!==playbackNonce)return false;
@@ -217,15 +218,15 @@ function stopSoloSnippet(){
   pauseSpotifyPlayback();
 }
 
-async function playSoloSnippet(track){
-  if(!track || (!solo && room?.hostId!==me)) return;
+async function playSoloSnippet(track,sharedPositionMs=null){
+  if(!track) return;
 
   const nonce=++playbackNonce;
   if(soloAudioStartTimer){clearTimeout(soloAudioStartTimer);soloAudioStartTimer=null}
   if(soloAudioStopTimer){clearTimeout(soloAudioStopTimer);soloAudioStopTimer=null}
   if(soloAudio){soloAudio.pause();soloAudio.src="";soloAudio=null}
 
-  const playedFullTrack=await playSpotifySnippet(track,nonce);
+  const playedFullTrack=await playSpotifySnippet(track,nonce,sharedPositionMs);
   if(playedFullTrack) return;
   if(nonce!==playbackNonce||!track.previewUrl) return;
 
@@ -377,12 +378,13 @@ async function pkce(){
   const challenge=btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
   return {verifier,challenge}
 }
-async function spotifyLogin(){
+async function spotifyLogin(afterAuth=null){
   if(!CLIENT_ID) throw new Error("Configure VITE_SPOTIFY_CLIENT_ID no .env.");
   const {verifier,challenge}=await pkce();
   const state=rand(16);
   sessionStorage.setItem("sp_pkce_verifier",verifier);
   sessionStorage.setItem("sp_state",state);
+  if(afterAuth)sessionStorage.setItem("sp_after_auth",JSON.stringify(afterAuth));
   const q=new URLSearchParams({client_id:CLIENT_ID,response_type:"code",redirect_uri:REDIRECT_URI,code_challenge_method:"S256",code_challenge:challenge,state,scope:SCOPES});
   location.href=`https://accounts.spotify.com/authorize?${q}`;
 }
@@ -467,7 +469,7 @@ function connectSocket(){
   socket.on("room:update",r=>{room=r;renderLobby()});
   socket.on("room:countdown",d=>{stopSoloSnippet();runCountdown(d)});
   socket.on("room:round",d=>runRound(d));
-  socket.on("room:host-track",d=>{if(!solo&&room?.hostId===me&&d.track){const wait=Math.max(0,d.startedAt-Date.now());soloAudioStartTimer=setTimeout(()=>playSoloSnippet(d.track),wait)}});
+  socket.on("room:track",d=>{if(!solo&&d.track){const wait=Math.max(0,d.startedAt-Date.now()-650);soloAudioStartTimer=setTimeout(()=>playSoloSnippet(d.track,d.positionMs),wait)}});
   socket.on("room:result",r=>{stopSoloSnippet();room=r;showResult(r)});
   socket.on("room:finished",r=>{stopSoloSnippet();room=r;showPodium(r)});
   socket.on("room:closed",d=>{alert(d.message);location.reload()});
@@ -506,7 +508,7 @@ function runRound(d){
   $("#options").querySelectorAll(".option").forEach(b=>b.onclick=()=>answer(d,b));
   clearInterval(roundTimer);
   const tick=()=>{
-    const left=Math.max(0,d.endsAt-Date.now());
+    const left=Math.max(0,d.endsAt-Math.max(Date.now(),d.startedAt));
     $("#timer").textContent=`${Math.ceil(left/1000)}s`;
     if(left<=0){
       clearInterval(roundTimer);
@@ -586,10 +588,17 @@ $("#createRoom").onclick=()=>{
   createWithPlaylist();
 };
 $("#roomCode").oninput=e=>e.target.value=e.target.value.replace(/\D/g,"").slice(0,6);
-$("#joinRoom").onclick=()=>{
-  msg($("#joinMsg"),"");connectSocket();
+$("#joinRoom").onclick=async()=>{
+  msg($("#joinMsg"),"");
+  const code=$("#roomCode").value;
+  if(!/^\d{6}$/.test(code)){msg($("#joinMsg"),"Digite o código de 6 números.");return}
+  if(!sessionStorage.getItem("sp_token")){await spotifyLogin({screen:"join",code});return}
+  $("#joinRoom").disabled=true;$("#joinRoom").innerHTML=`<span class="spinner"></span> ativando seu player`;
+  const playerReady=await ensureSpotifyPlayer();
+  if(!playerReady){msg($("#joinMsg"),`${spotifyPlayerError} Cada jogador precisa usar sua própria conta Spotify Premium autorizada.`);$("#joinRoom").disabled=false;$("#joinRoom").textContent="Tentar novamente";return}
+  connectSocket();
   socket.emit("room:join",{code:$("#roomCode").value,name},res=>{
-    if(!res?.ok){msg($("#joinMsg"),res?.error||"Não foi possível entrar.");return}
+    if(!res?.ok){msg($("#joinMsg"),res?.error||"Não foi possível entrar.");$("#joinRoom").disabled=false;$("#joinRoom").textContent="Entrar";return}
     room=res.room;me=res.playerId;show("lobby");renderLobby();
   });
 };
@@ -613,5 +622,7 @@ if(document.modelContext?.registerTool){
   if(authCode && sessionStorage.getItem("sp_pkce_verifier")){
     try{await exchangeCode(authCode)}catch(e){console.error(e)}
   }
+  const afterAuth=JSON.parse(sessionStorage.getItem("sp_after_auth")||"null");
+  if(afterAuth?.screen==="join"){sessionStorage.removeItem("sp_after_auth");$("#roomCode").value=String(afterAuth.code||"");$("#joinRoom").textContent="Ativar player e entrar";show("joinScreen");return}
   if(joinCode){$("#roomCode").value=joinCode;show("joinScreen")}
 })();
