@@ -1,640 +1,155 @@
 import "./style.css";
 import { io } from "socket.io-client";
 
-const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID || "";
-const REDIRECT_URI = new URL(import.meta.env.BASE_URL, location.origin).href;
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "https://spotiguess-kk1y.onrender.com";
-const API = "https://api.spotify.com/v1";
-const SCOPES = "playlist-read-private playlist-read-collaborative streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state";
+const CLIENT_ID=import.meta.env.VITE_SPOTIFY_CLIENT_ID||"";
+const REDIRECT_URI=new URL(import.meta.env.BASE_URL,location.origin).href;
+const SERVER_URL=import.meta.env.VITE_SERVER_URL||"https://spotiguess-kk1y.onrender.com";
+const API="https://api.spotify.com/v1";
+const SCOPES="playlist-read-private playlist-read-collaborative user-library-read user-top-read streaming user-read-email user-read-private user-modify-playback-state user-read-playback-state";
+const ROUND_MS=15000;
+const FIRST_COUNTDOWN_MS=5200;
 
 const app=document.querySelector("#app");
 app.innerHTML=`
-<div class="app">
-<section class="screen active" id="home">
-  <div class="brand-row"><div class="logo"><div class="disc"></div><span>Sahur<b>Guess</b></span></div><button class="logout" id="homeLogout" type="button" hidden>Desconectar</button></div>
-  <div class="intro"><span class="eyebrow">OUÇA. ADIVINHE. VENÇA.</span><h1>Você conhece mesmo<br>as suas playlists?</h1><p>Conecte o Spotify, escolha uma playlist e dispute cada segundo.</p></div>
-  <label>SEU NOME</label>
-  <div class="namebox"><div class="avatar" id="avatar">?</div><input id="name" maxlength="16" placeholder="Como podemos te chamar?"></div>
-  <div class="menu" id="create"><div class="icon">🎧</div><div><h3>Criar sala</h3><p>Conecte seu Spotify e desafie seus amigos.</p></div></div>
-  <div class="menu" id="join"><div class="icon">🔑</div><div><h3>Entrar em sala</h3><p>Use o código de 6 dígitos do host.</p></div></div>
-  <div class="menu" id="solo"><div class="icon">🎵</div><div><h3>Jogar solo</h3><p>10 rodadas para bater seu recorde.</p></div></div>
-  <p class="small muted center">Feito para jogar no celular · conectado ao Spotify</p>
-</section>
+<main class="app-shell">
+  <section class="screen login-screen" id="login">
+    <div class="login-orbit"><div class="login-disc"><span>?</span></div></div>
+    <div class="login-copy"><span class="brand-kicker">SAHURGUESS</span><h1>Quanto você conhece<br>as músicas que ama?</h1><p>Entre com o Spotify para transformar seus artistas e playlists em quizzes.</p></div>
+    <button class="main-button" id="loginButton"><span class="play-icon">▶</span> Entrar com Spotify</button>
+    <small class="legal">Sua senha nunca passa pelo SahurGuess.</small>
+  </section>
 
-<section class="screen" id="createScreen">
-  <div class="top"><span class="back" data-back>← voltar</span></div>
-  <span class="eyebrow">NOVA SALA</span><h2>Criar sala</h2>
-  <div id="createMsg"></div>
-  <button class="btn primary" id="connect">Conectar e ver minhas playlists</button>
-  <div id="playlistPick" style="display:none"></div>
-  <div id="gameSettings" style="display:none"><label for="rounds">NÚMERO DE RODADAS</label><div class="round-picker"><button type="button" data-rounds="5">5</button><button type="button" class="active" data-rounds="10">10</button><button type="button" data-rounds="15">15</button><button type="button" data-rounds="20">20</button></div></div>
-  <button class="btn primary" id="createRoom" style="display:none">Criar sala</button>
-  <p class="hint">O login usa o fluxo seguro PKCE. Sua senha e seu Client Secret nunca passam pelo site.</p>
-</section>
+  <section class="screen dashboard" id="dashboard">
+    <header class="dash-header"><div><span class="hello">OLÁ, <b id="profileName">JOGADOR</b></span><h1>O que vamos ouvir?</h1></div><button class="avatar-button" id="profileButton" aria-label="Perfil"><img id="profileImage" alt=""></button></header>
+    <div id="dashboardMessage"></div>
+    <section class="shelf"><div class="section-title"><h2><span>●</span> Artistas</h2><button data-open-list="artist">Ver todos ›</button></div><div class="horizontal-cards" id="artistShelf"></div></section>
+    <section class="shelf"><div class="section-title"><h2><span>☷</span> Playlists</h2><button data-open-list="playlist">Ver todas ›</button></div><div class="horizontal-cards" id="playlistShelf"></div></section>
+    <button class="main-button sticky-play" id="openPlay"><span class="play-icon">▶</span> Jogar</button>
+    <nav class="bottom-nav"><button class="active">⌁<span>Jogar</span></button><button id="navProfile">●<span>Você</span></button></nav>
+  </section>
 
-<section class="screen" id="joinScreen">
-  <div class="top"><span class="back" data-back>← voltar</span></div>
-  <span class="eyebrow">ENTRAR</span><h2>Código da sala</h2>
-  <input id="roomCode" maxlength="6" inputmode="numeric" style="text-align:center;font:900 30px ui-monospace,monospace;letter-spacing:.2em" placeholder="------">
-  <div id="joinMsg"></div><button class="btn primary" id="joinRoom">Conectar Spotify e entrar</button>
-  <p class="hint">Cada jogador precisa usar sua própria conta Spotify Premium autorizada no aplicativo.</p>
-</section>
+  <section class="screen flow-screen" id="quizType">
+    <header class="flow-header"><button class="circle-back" data-back="dashboard">←</button><h2>Escolha o quiz</h2><span></span></header>
+    <div class="intro-card"><h3>Como você quer jogar?</h3><p>Escolha de onde virão as músicas.</p></div>
+    <div class="choice-list">
+      <button data-kind="artist"><span class="choice-icon">●</span><span><b>Quiz de artista</b><small>Músicas de um artista específico</small></span><i>›</i></button>
+      <button data-kind="playlist"><span class="choice-icon">☷</span><span><b>Quiz de playlist</b><small>Escolha uma das suas playlists</small></span><i>›</i></button>
+      <button data-kind="liked"><span class="choice-icon">♥</span><span><b>Músicas curtidas</b><small>Quiz com as faixas que você salvou</small></span><i>›</i></button>
+    </div>
+  </section>
 
-<section class="screen" id="lobby">
-  <div class="top"><span class="back" id="leave">← sair</span><button class="logout" id="lobbyLogout" type="button">Desconectar Spotify</button></div>
-  <div class="center"><span class="eyebrow">CÓDIGO</span><div class="code" id="code"></div></div>
-  <div id="lobbyPlaylist"></div><label>JOGADORES</label><div class="players" id="players"></div>
-  <div class="spacer"></div><div id="hostAction"></div><p class="small muted center">Compartilhe o código com seus amigos.</p>
-</section>
+  <section class="screen flow-screen" id="sourceSelect">
+    <header class="flow-header"><button class="circle-back" data-back="quizType">←</button><h2 id="sourceTitle">Escolha</h2><span></span></header>
+    <div id="sourceMessage"></div><div class="source-list" id="sourceList"></div>
+  </section>
 
-<section class="screen countdown" id="countdown"><div class="count" id="count">3</div><div class="count-sub" id="countSub">PREPARE-SE</div></section>
+  <section class="screen flow-screen" id="ready">
+    <header class="flow-header"><button class="circle-back" data-back="quizType">←</button><h2>Quiz pronto</h2><span>◉</span></header>
+    <div class="ready-card"><img id="readyImage" alt=""><div class="fallback-cover" id="readyFallback">♫</div><h1 id="readyTitle">Seu quiz</h1><p id="readyDescription"></p></div>
+    <div class="round-block"><span>QUANTAS RODADAS?</span><div class="round-options"><button data-round="5">5</button><button class="active" data-round="10">10</button><button data-round="15">15</button><button data-round="20">20</button></div></div>
+    <div id="readyMessage"></div><button class="main-button ready-play" id="readyPlay"><span class="play-icon">▶</span> Começar</button>
+  </section>
 
-<section class="screen" id="game">
-  <div class="roundbar"><span class="eyebrow">RODADA</span><strong id="round"></strong></div>
-  <div class="vinyl"><img id="cover" alt=""></div>
-  <div class="timer" id="timer">15s</div>
-  <div class="options" id="options"></div>
-  <div style="margin-top:18px"><label>PLACAR</label><div id="miniRank"></div></div>
-</section>
+  <section class="screen lobby-screen" id="lobby">
+    <header class="flow-header"><button class="circle-back" id="leaveRoom">←</button><h2>Sala de jogo</h2><button class="text-button" id="lobbyLogout">Sair</button></header>
+    <div class="room-code"><span>CÓDIGO DA SALA</span><strong id="roomCodeDisplay">000000</strong><small>Compartilhe com seus amigos</small></div>
+    <div id="lobbyPlaylist"></div><h3 class="list-label">JOGADORES</h3><div class="players" id="players"></div><div class="grow"></div><div id="hostAction"></div>
+  </section>
 
-<section class="screen" id="result">
-  <div class="result" id="resultBox"></div><label>PLACAR</label><div id="resultRank"></div>
-  <div class="spacer"></div><p class="small muted center" id="next"></p>
-</section>
+  <section class="screen countdown" id="countdown"><div class="count-ring"><div class="count" id="count">5</div></div><div class="count-sub" id="countSub">PREPARE-SE</div></section>
 
-<section class="screen" id="podiumScreen">
-  <div class="center"><span class="eyebrow">FIM DE JOGO</span><h2>Pódio final</h2></div>
-  <div class="podium" id="podium"></div><label>RANKING</label><div id="finalRank"></div>
-  <div class="footer"><button class="btn primary" id="again">Jogar novamente</button><button class="btn outline" id="exit">Sair</button></div>
-</section>
-</div>`;
+  <section class="screen game-screen" id="game">
+    <header class="game-header"><button class="circle-back" id="gameExit">←</button><div><b id="gameMode">Quiz solo</b><span id="round">Faixa 1 de 10</span></div><div class="score-pill">♜ <strong id="scoreValue">0</strong></div></header>
+    <div class="progress-dots" id="progressDots"></div>
+    <h1>Qual é a música?</h1><div class="timer-pill">◷ <span id="timer">15.0s</span></div>
+    <div class="options" id="options"></div><div class="score-float" id="scoreFloat">+0</div>
+    <div class="mini-ranking" id="miniRank"></div>
+  </section>
+
+  <section class="screen final-screen" id="finalScreen">
+    <header class="flow-header"><button class="circle-back" id="finalHome">←</button><h2>Fim de jogo</h2><span>◉</span></header>
+    <div class="final-hero"><div class="check-badge">✓</div><h1>Quiz finalizado!</h1><p>Continue descobrindo novas músicas.</p><div class="total-card"><strong id="finalScore">0</strong><span id="finalMaximum">/ 1000</span><small>PONTOS TOTAIS</small></div></div>
+    <div class="final-actions"><button class="outline-button" id="homeAgain">⌂ Início</button><button class="main-button" id="playAgain">▶ Jogar novamente</button></div>
+    <section class="heard"><h2>Músicas que você ouviu</h2><div id="songHistory"></div></section>
+    <section id="finalRankingWrap"><h2>Ranking final</h2><div id="finalRank"></div></section>
+  </section>
+
+  <div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+  <aside class="mode-sheet" id="modeSheet" aria-hidden="true"><div class="sheet-handle"></div><header><h2>Escolha o modo</h2><button id="closeSheet">×</button></header><div class="mode-list"><button id="chooseSolo"><span>●</span><b>Quiz solo<small>Jogue rápido e supere sua pontuação</small></b><i>›</i></button><button id="chooseMulti"><span>◎</span><b>Criar sala<small>Convide amigos para jogar online</small></b><i>›</i></button></div><div class="join-box"><label>JÁ TEM UM CÓDIGO?</label><div><input id="joinCode" inputmode="numeric" maxlength="6" placeholder="000000"><button id="joinButton">Entrar</button></div><div id="joinMessage"></div></div></aside>
+
+  <aside class="profile-sheet" id="profileSheet" aria-hidden="true"><div class="sheet-handle"></div><header><h2>Sua conta</h2><button id="closeProfile">×</button></header><div class="profile-card"><img id="profileSheetImage" alt=""><div><b id="profileSheetName">Jogador</b><small>Spotify conectado</small></div></div><label>SEU NOME NO JOGO</label><input id="playerName" maxlength="16"><button class="outline-button danger" id="logoutButton">Desconectar Spotify</button></aside>
+</main>`;
 
 const $=s=>document.querySelector(s);
-const screens=["home","createScreen","joinScreen","lobby","countdown","game","result","podiumScreen"];
-function show(id){screens.forEach(x=>$("#"+x).classList.toggle("active",x===id))}
-function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function initials(s){return (s||"?").trim().slice(0,2).toUpperCase()}
-function syncAuthUI(){$("#homeLogout").hidden=!sessionStorage.getItem("sp_token")}
-let name=localStorage.getItem("spotiguess_name")||"Jogador"+Math.floor(Math.random()*900+100);
-$("#name").value=name; $("#avatar").textContent=initials(name);
-$("#name").oninput=e=>{name=e.target.value.slice(0,16);$("#avatar").textContent=initials(name);localStorage.setItem("spotiguess_name",name)}
+const screens=["login","dashboard","quizType","sourceSelect","ready","lobby","countdown","game","finalScreen"];
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const initials=s=>(s||"?").trim().slice(0,2).toUpperCase();
+const shuffle=list=>[...list].sort(()=>Math.random()-.5);
+const delay=ms=>new Promise(r=>setTimeout(r,ms));
+function show(id){screens.forEach(x=>$("#"+x).classList.toggle("active",x===id));window.scrollTo(0,0)}
+function message(el,text,type="error"){el.innerHTML=text?`<div class="${type}">${esc(text)}</div>`:""}
 
-let socket=null, room=null, me=null, selectedPlaylist=null, tokenState=null, countdownTimer=null, roundTimer=null, solo=false, selectedRounds=10;
-let soloState=null;
-let soloAudio=null;
-let soloAudioStopTimer=null;
-let soloAudioStartTimer=null;
-let playbackNonce=0;
-let spotifySDKPromise=null;
-let spotifyPlayer=null;
-let spotifyDeviceId="";
-let spotifyPlayerError="";
-let spotifyCommandQueue=Promise.resolve();
+let tokenState=null,profile=null,playlists=[],artists=[],selectedSource=null,selectedTracks=[];
+let selectedRounds=10,playMode="solo",sourceKind="playlist",name=localStorage.getItem("sahurguess_name")||"Jogador";
+let socket=null,room=null,me=null,solo=false,soloState=null,countdownTimer=null,roundTimer=null,gameHistory=[];
+let spotifySDKPromise=null,spotifyPlayer=null,spotifyDeviceId="",spotifyPlayerError="",spotifyCommandQueue=Promise.resolve();
+let audioStartTimer=null,audioStopTimer=null,playbackNonce=0,previewAudio=null;
 
-const ROUND_MS=15000;
-const SOLO_COUNTDOWN_MS=3200;
-
-function msg(el,text,type="error"){el.innerHTML=text?`<div class="${type}">${esc(text)}</div>`:""}
-
-function loadSpotifySDK(){
-  if(window.Spotify) return Promise.resolve();
-  if(spotifySDKPromise) return spotifySDKPromise;
-
-  spotifySDKPromise=new Promise((resolve,reject)=>{
-    const existing=document.querySelector('script[src="https://sdk.scdn.co/spotify-player.js"]');
-    const script=existing||document.createElement("script");
-    if(!existing){
-      script.src="https://sdk.scdn.co/spotify-player.js";
-      script.async=true;
-      document.head.appendChild(script);
-    }
-
-    const timeout=setTimeout(()=>reject(new Error("Spotify SDK timeout")),10000);
-    window.onSpotifyWebPlaybackSDKReady=()=>{clearTimeout(timeout);resolve()};
-    script.onerror=()=>{clearTimeout(timeout);reject(new Error("Falha ao carregar Spotify SDK"))};
-  });
-
-  return spotifySDKPromise;
-}
-
-async function ensureSpotifyPlayer(){
-  if(spotifyPlayer && spotifyDeviceId) return true;
-  try{
-    await loadSpotifySDK();
-    await getToken();
-
-    const player=new window.Spotify.Player({
-      name:"SahurGuess",
-      getOAuthToken:cb=>{getToken().then(t=>cb(t)).catch(()=>cb(""))},
-      volume:0.8
-    });
-
-    spotifyPlayer=player;
-    const readyPromise=new Promise((resolve,reject)=>{
-      const timeout=setTimeout(()=>reject(new Error("Player não ficou pronto a tempo.")),12000);
-      player.addListener("ready",({device_id})=>{
-        clearTimeout(timeout);
-        spotifyDeviceId=device_id;
-        resolve(true);
-      });
-      player.addListener("not_ready",()=>{spotifyDeviceId=""});
-      const fail=message=>{clearTimeout(timeout);reject(new Error(message))};
-      player.addListener("initialization_error",({message})=>fail(message||"Não foi possível iniciar o player do Spotify."));
-      player.addListener("authentication_error",({message})=>fail(message||"O Spotify recusou a autenticação do player."));
-      player.addListener("account_error",()=>fail("A reprodução de músicas completas exige Spotify Premium na conta do host."));
-      player.addListener("playback_error",({message})=>console.warn("Spotify playback error:",message));
-    });
-
-    const connected=await player.connect();
-    if(!connected) return false;
-    if(player.activateElement) player.activateElement();
-    await readyPromise;
-    return true;
-  }catch(err){
-    spotifyPlayerError=err?.message||"Não foi possível iniciar o player do Spotify.";
-    console.warn("Web Playback indisponível:", err?.message||err);
-    return false;
-  }
-}
-
-async function pauseSpotifyPlayback(){
-  if(!spotifyDeviceId) return;
-  const command=spotifyCommandQueue.catch(()=>{}).then(async()=>{
-    if(spotifyPlayer){await spotifyPlayer.pause();return}
-    await spotifyFetch(`/me/player/pause?device_id=${encodeURIComponent(spotifyDeviceId)}`,{method:"PUT"});
-  });
-  spotifyCommandQueue=command.catch(()=>{});
-  try{await command}catch{}
-}
-
-async function playSpotifySnippet(track,nonce,sharedPositionMs=null){
-  if(!track?.uri) return false;
-  const ready=await ensureSpotifyPlayer();
-  if(!ready || !spotifyDeviceId) return false;
-
-  try{
-    const snippetMs=ROUND_MS;
-    const durationMs=Math.max(1000, Number(track.durationMs)||30000);
-    const maxStart=Math.max(0, durationMs-snippetMs);
-    const positionMs=Number.isFinite(sharedPositionMs)?Math.max(0,Math.min(sharedPositionMs,maxStart)):Math.floor(Math.random()*(maxStart+1));
-
-    const command=spotifyCommandQueue.catch(()=>{}).then(async()=>{
-      if(nonce!==playbackNonce)return false;
-      if(spotifyPlayer)await spotifyPlayer.pause();
-      if(nonce!==playbackNonce)return false;
-      await spotifyFetch(`/me/player/play?device_id=${encodeURIComponent(spotifyDeviceId)}`,{
-        method:"PUT",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({uris:[track.uri],position_ms:positionMs})
-      });
-      return nonce===playbackNonce;
-    });
-    spotifyCommandQueue=command.catch(()=>{});
-    if(!await command)return false;
-
-    if(nonce!==playbackNonce)return false;
-    soloAudioStopTimer=setTimeout(()=>{if(nonce===playbackNonce)pauseSpotifyPlayback()},snippetMs);
-    return true;
-  }catch(err){
-    console.warn("Falha no playback completo, usando preview:", err?.message||err);
-    return false;
-  }
-}
-
-function stopSoloSnippet(){
-  playbackNonce++;
-  if(soloAudioStartTimer){
-    clearTimeout(soloAudioStartTimer);
-    soloAudioStartTimer=null;
-  }
-  if(soloAudioStopTimer){
-    clearTimeout(soloAudioStopTimer);
-    soloAudioStopTimer=null;
-  }
-  if(soloAudio){
-    soloAudio.pause();
-    soloAudio.src="";
-    soloAudio=null;
-  }
-  pauseSpotifyPlayback();
-}
-
-async function playSoloSnippet(track,sharedPositionMs=null){
-  if(!track) return;
-
-  const nonce=++playbackNonce;
-  if(soloAudioStartTimer){clearTimeout(soloAudioStartTimer);soloAudioStartTimer=null}
-  if(soloAudioStopTimer){clearTimeout(soloAudioStopTimer);soloAudioStopTimer=null}
-  if(soloAudio){soloAudio.pause();soloAudio.src="";soloAudio=null}
-
-  const playedFullTrack=await playSpotifySnippet(track,nonce,sharedPositionMs);
-  if(playedFullTrack) return;
-  if(nonce!==playbackNonce||!track.previewUrl) return;
-
-  const audio=new Audio(track.previewUrl);
-  audio.preload="auto";
-  audio.addEventListener("loadedmetadata", async ()=>{
-    try{
-      const snippetMs=ROUND_MS;
-      const maxStart=Math.max(0, (audio.duration||30)-snippetMs/1000);
-      const startAt=Math.random()*maxStart;
-      audio.currentTime=startAt;
-      await audio.play();
-      soloAudioStopTimer=setTimeout(()=>{
-        if(nonce===playbackNonce&&audio===soloAudio) audio.pause();
-      },snippetMs);
-    }catch{
-      // Browser may block autoplay if the tab lost user activation.
-    }
-  },{once:true});
-  soloAudio=audio;
-}
-
-function shuffled(list){
-  return [...list].sort(()=>Math.random()-0.5);
-}
-
-function resetCreateUI(){
-  $("#createRoom").textContent=solo?"Jogar solo":"Criar sala";
-  $("#createRoom").style.display="none";
-  $("#connect").style.display="block";
-  $("#connect").disabled=false;
-  $("#connect").innerHTML="Conectar com Spotify";
-  $("#playlistPick").style.display="none";
-  $("#playlistPick").innerHTML="";
-  $("#gameSettings").style.display="none";
-  msg($("#createMsg"),"");
-}
-
-function buildRoundQuestion(tracks, used){
-  let pool=tracks.filter(t=>!used.has(t.id));
-  if(!pool.length){
-    used.clear();
-    pool=tracks.slice();
-  }
-  const correct=pool[Math.floor(Math.random()*pool.length)];
-  used.add(correct.id);
-
-  const wrong=shuffled(tracks.filter(t=>t.id!==correct.id)).slice(0,3);
-  const all=shuffled([correct,...wrong]);
-  const options=all.map((t,i)=>({id:String(i),label:`${t.name} — ${t.artists}`}));
-  const correctId=String(all.findIndex(t=>t.id===correct.id));
-  return {correct, options, correctId};
-}
-
-function startSoloCountdown(round){
-  const at=Date.now()+SOLO_COUNTDOWN_MS;
-  runCountdown({at,round,totalRounds:room.totalRounds});
-  setTimeout(()=>startSoloRound(round),SOLO_COUNTDOWN_MS+100);
-}
-
-function startSoloRound(round){
-  if(!solo || !soloState || !room) return;
-  const q=buildRoundQuestion(soloState.tracks, soloState.used);
-  const startedAt=Date.now()+250;
-  const endsAt=startedAt+ROUND_MS;
-  room.round=round;
-  room.current={round,startedAt,endsAt,options:q.options};
-  room.results=null;
-  soloState.current={...q,round,startedAt,endsAt};
-  soloState.answered=false;
-  runRound({round,totalRounds:room.totalRounds,startedAt,endsAt,options:q.options,trackForHost:q.correct});
-  const wait=Math.max(0,startedAt-Date.now());
-  soloAudioStartTimer=setTimeout(()=>{playSoloSnippet(q.correct)},wait);
-}
-
-function finishSoloRound(optionId){
-  if(!soloState?.current || soloState.answered) return;
-  soloState.answered=true;
-  stopSoloSnippet();
-
-  const current=soloState.current;
-  const player=room.players[0];
-  const correct=optionId===current.correctId;
-  let delta=0;
-  let newStreak=0;
-  if(correct){
-    const elapsed=Math.max(0,Math.min(ROUND_MS,Date.now()-current.startedAt));
-    const speed=Math.max(0,Math.min(100,Math.round(100*(1-elapsed/ROUND_MS))));
-    newStreak=player.streak+1;
-    delta=speed;
-  }
-
-  player.score+=delta;
-  player.streak=correct?newStreak:0;
-
-  const result={id:player.id,name:player.name,correct,delta,score:player.score,streak:player.streak};
-  room.results={round:room.round,correctId:current.correctId,track:current.correct,results:[result]};
-  showResult(room);
-
-  if(room.round>=room.totalRounds){
-    room.finalRanking=[{id:player.id,name:player.name,score:player.score}];
-    setTimeout(()=>showPodium(room),1800);
-  } else {
-    setTimeout(()=>startSoloCountdown(room.round+1),1800);
-  }
-}
-
-async function startSoloGame(){
-  if(!selectedPlaylist){
-    msg($("#createMsg"),"Primeiro conecte o Spotify e carregue uma playlist.");
-    return;
-  }
-  if(selectedPlaylist.tracks.length<4){
-    msg($("#createMsg"),"A playlist precisa ter pelo menos 4 faixas disponíveis.");
-    return;
-  }
-
-  msg($("#createMsg"),"Ativando o player do Spotify…","success");
-  const playerReady=await ensureSpotifyPlayer();
-  if(!playerReady){msg($("#createMsg"),`${spotifyPlayerError} Para tocar qualquer música, use uma conta Spotify Premium e permita a reprodução neste navegador.`);return}
-  me="solo-player";
-  const soloTracks=selectedPlaylist.tracks;
-  const totalRounds=Math.min(selectedRounds, selectedPlaylist.tracks.length);
-  room={
-    code:"SOLO",
-    status:"playing",
-    round:0,
-    totalRounds,
-    playlist:selectedPlaylist,
-    hostId:me,
-    players:[{id:me,name,score:0,streak:0}],
-    current:null,
-    results:null,
-    finalRanking:[]
-  };
-  soloState={tracks:soloTracks.slice(0,200),used:new Set(),current:null,answered:false};
-  startSoloCountdown(1);
-}
-
-function parsePlaylistId(value){
-  const m=String(value||"").match(/open\.spotify\.com\/playlist\/([A-Za-z0-9]+)|spotify:playlist:([A-Za-z0-9]+)/);
-  return m?.[1]||m?.[2]||null;
-}
+function hasSession(){return Boolean(sessionStorage.getItem("sp_token"))}
 function rand(n=32){const a=new Uint8Array(n);crypto.getRandomValues(a);return [...a].map(x=>x.toString(16).padStart(2,"0")).join("")}
-async function pkce(){
-  const verifier=rand(32);
-  const data=new TextEncoder().encode(verifier);
-  const digest=await crypto.subtle.digest("SHA-256",data);
-  const challenge=btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-  return {verifier,challenge}
-}
-async function spotifyLogin(afterAuth=null){
-  if(!CLIENT_ID) throw new Error("Configure VITE_SPOTIFY_CLIENT_ID no .env.");
-  const {verifier,challenge}=await pkce();
-  const state=rand(16);
-  sessionStorage.setItem("sp_pkce_verifier",verifier);
-  sessionStorage.setItem("sp_state",state);
-  if(afterAuth)sessionStorage.setItem("sp_after_auth",JSON.stringify(afterAuth));
-  const q=new URLSearchParams({client_id:CLIENT_ID,response_type:"code",redirect_uri:REDIRECT_URI,code_challenge_method:"S256",code_challenge:challenge,state,scope:SCOPES});
-  location.href=`https://accounts.spotify.com/authorize?${q}`;
-}
-async function exchangeCode(code){
-  const verifier=sessionStorage.getItem("sp_pkce_verifier");
-  const state=sessionStorage.getItem("sp_state");
-  if(!verifier||!state) throw new Error("Sessão PKCE não encontrada. Tente conectar novamente.");
-  if(new URLSearchParams(location.search).get("state")!==state) throw new Error("Falha de segurança: state inválido.");
-  const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:verifier});
-  const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-  if(!r.ok) throw new Error("O Spotify recusou a autorização.");
-  const d=await r.json();
-  tokenState={access:d.access_token,refresh:d.refresh_token,expiresAt:Date.now()+d.expires_in*1000-60000};
-  sessionStorage.setItem("sp_token",JSON.stringify(tokenState));
-  history.replaceState({},document.title,location.pathname);
-  return tokenState;
-}
-async function getToken(){
-  if(tokenState?.access && Date.now()<tokenState.expiresAt) return tokenState.access;
-  const saved=sessionStorage.getItem("sp_token");
-  if(saved){tokenState=JSON.parse(saved);if(tokenState.access&&Date.now()<tokenState.expiresAt)return tokenState.access}
-  if(tokenState?.refresh){
-    const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:tokenState.refresh});
-    const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});
-    if(r.ok){const d=await r.json();tokenState={access:d.access_token,refresh:d.refresh_token||tokenState.refresh,expiresAt:Date.now()+d.expires_in*1000-60000};sessionStorage.setItem("sp_token",JSON.stringify(tokenState));return tokenState.access}
-  }
-  throw new Error("Spotify não conectado.");
-}
-async function spotifyFetch(path,opts={}){
-  let access=await getToken();
-  for(let attempt=0;attempt<3;attempt++){
-    const r=await fetch(API+path,{...opts,headers:{...(opts.headers||{}),Authorization:`Bearer ${access}`}});
-    if(r.status===401){tokenState=null;sessionStorage.removeItem("sp_token");throw new Error("Sua autorização do Spotify expirou. Conecte novamente.")}
-    if(r.status===429){const wait=Number(r.headers.get("Retry-After")||2);await new Promise(x=>setTimeout(x,Math.min(wait*1000,8000)));continue}
-    if(!r.ok){let e={};try{e=await r.json()}catch{};throw new Error(e?.error?.message||`Spotify respondeu ${r.status}.`)}
-    return r.status===204?null:r.json();
-  }
-  throw new Error("Spotify está limitando as requisições. Tente novamente em alguns segundos.");
-}
-async function getPlaylist(id){
-  const data=await spotifyFetch(`/playlists/${encodeURIComponent(id)}?fields=id,name,images,external_urls`);
-  const items=[];
-  let url=`/playlists/${encodeURIComponent(id)}/items?limit=50&fields=items(item(id,name,artists(name),album(name,images),uri,preview_url,duration_ms,type,is_local)),next`;
-  while(url&&items.length<200){
-    const d=await spotifyFetch(url);
-    for(const x of d.items||[]){
-      const t=x.item;
-      if(t?.type==="track"&&!t.is_local&&t.id) items.push({id:t.id,name:t.name,artists:(t.artists||[]).map(a=>a.name).join(", "),album:t.album?.name||"",image:t.album?.images?.[0]?.url||"",uri:t.uri,previewUrl:t.preview_url||"",durationMs:t.duration_ms||0});
-    }
-    url=d.next?d.next.replace(API,"") : null;
-  }
-  return {id:data.id,name:data.name,image:data.images?.[0]?.url||"",spotifyUrl:data.external_urls?.spotify||`https://open.spotify.com/playlist/${data.id}`,tracks:items};
-}
-async function getMyPlaylists(){
-  const playlists=[];
-  let url="/me/playlists?limit=50";
-  while(url&&playlists.length<100){
-    const d=await spotifyFetch(url);
-    playlists.push(...(d.items||[]).filter(Boolean).map(p=>({id:p.id,name:p.name,image:p.images?.[0]?.url||"",count:p.tracks?.total||0,owner:p.owner?.display_name||""})));
-    url=d.next?d.next.replace(API,""):null;
-  }
-  return playlists;
-}
-function renderPlaylists(playlists){
-  $("#playlistPick").style.display="block";
-  $("#playlistPick").innerHTML=`<label>ESCOLHA UMA PLAYLIST</label><div class="playlist-grid">${playlists.map(p=>`<button class="playlist-choice" data-playlist="${esc(p.id)}">${p.image?`<img src="${esc(p.image)}" alt="">`:`<span class="playlist-fallback">♪</span>`}<span><b>${esc(p.name)}</b><small>${p.count} músicas</small></span></button>`).join("")}</div>`;
-  document.querySelectorAll(".playlist-choice").forEach(button=>button.onclick=async()=>{
-    document.querySelectorAll(".playlist-choice").forEach(x=>x.classList.toggle("selected",x===button));
-    msg($("#createMsg"),"Carregando músicas…","success");
-    try{
-      selectedPlaylist=await getPlaylist(button.dataset.playlist);
-      if(selectedPlaylist.tracks.length<4)throw new Error("Essa playlist precisa ter pelo menos 4 músicas disponíveis.");
-      msg($("#createMsg"),`${selectedPlaylist.name}: ${selectedPlaylist.tracks.length} músicas prontas.`,"success");
-      $("#gameSettings").style.display="block";$("#createRoom").style.display="block";
-    }catch(e){selectedPlaylist=null;msg($("#createMsg"),e.message)}
-  });
-}
+async function pkce(){const verifier=rand(32);const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(verifier));const challenge=btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");return {verifier,challenge}}
+async function spotifyLogin(){if(!CLIENT_ID)throw new Error("Client ID do Spotify não configurado.");const {verifier,challenge}=await pkce();const state=rand(16);sessionStorage.setItem("sp_pkce_verifier",verifier);sessionStorage.setItem("sp_state",state);const q=new URLSearchParams({client_id:CLIENT_ID,response_type:"code",redirect_uri:REDIRECT_URI,code_challenge_method:"S256",code_challenge:challenge,state,scope:SCOPES});location.href=`https://accounts.spotify.com/authorize?${q}`}
+async function exchangeCode(code){const verifier=sessionStorage.getItem("sp_pkce_verifier");if(!verifier||new URLSearchParams(location.search).get("state")!==sessionStorage.getItem("sp_state"))throw new Error("Não foi possível validar o login.");const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"authorization_code",code,redirect_uri:REDIRECT_URI,code_verifier:verifier});const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});if(!r.ok)throw new Error("O Spotify recusou a autorização.");const d=await r.json();tokenState={access:d.access_token,refresh:d.refresh_token,expiresAt:Date.now()+d.expires_in*1000-60000};sessionStorage.setItem("sp_token",JSON.stringify(tokenState));history.replaceState({},document.title,location.pathname)}
+async function getToken(){if(tokenState?.access&&Date.now()<tokenState.expiresAt)return tokenState.access;try{tokenState=JSON.parse(sessionStorage.getItem("sp_token")||"null")}catch{tokenState=null}if(tokenState?.access&&Date.now()<tokenState.expiresAt)return tokenState.access;if(tokenState?.refresh){const body=new URLSearchParams({client_id:CLIENT_ID,grant_type:"refresh_token",refresh_token:tokenState.refresh});const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body});if(r.ok){const d=await r.json();tokenState={access:d.access_token,refresh:d.refresh_token||tokenState.refresh,expiresAt:Date.now()+d.expires_in*1000-60000};sessionStorage.setItem("sp_token",JSON.stringify(tokenState));return tokenState.access}}throw new Error("Sua sessão expirou. Entre novamente.")}
+async function spotifyFetch(path,opts={}){let access=await getToken();for(let i=0;i<3;i++){const r=await fetch(API+path,{...opts,headers:{...(opts.headers||{}),Authorization:`Bearer ${access}`}});if(r.status===401){tokenState=null;sessionStorage.removeItem("sp_token");throw new Error("Sua sessão do Spotify expirou.")}if(r.status===429){await delay(Math.min(Number(r.headers.get("Retry-After")||2)*1000,8000));continue}if(!r.ok){let e={};try{e=await r.json()}catch{}throw new Error(e?.error?.message||`Erro ${r.status} do Spotify.`)}return r.status===204?null:r.json()}throw new Error("O Spotify está limitando as requisições.")}
 
-function connectSocket(){
-  if(socket?.connected)return;
-  socket=io(SERVER_URL,{transports:["websocket","polling"]});
-  socket.on("room:update",r=>{room=r;renderLobby()});
-  socket.on("room:countdown",d=>{stopSoloSnippet();runCountdown(d)});
-  socket.on("room:round",d=>runRound(d));
-  socket.on("room:track",d=>{if(!solo&&d.track){const wait=Math.max(0,d.startedAt-Date.now()-650);soloAudioStartTimer=setTimeout(()=>playSoloSnippet(d.track,d.positionMs),wait)}});
-  socket.on("room:result",r=>{stopSoloSnippet();room=r;showResult(r)});
-  socket.on("room:finished",r=>{stopSoloSnippet();room=r;showPodium(r)});
-  socket.on("room:closed",d=>{alert(d.message);location.reload()});
-}
-function renderLobby(){
-  if(!room)return;
-  $("#code").textContent=room.code;
-  $("#lobbyPlaylist").innerHTML=`<div class="playlist">${room.playlist.image?`<img src="${esc(room.playlist.image)}">`:""}<div><b>${esc(room.playlist.name)}</b><br><small>${room.players.length} jogadores · ${room.totalRounds} rodadas</small></div></div>`;
-  $("#players").innerHTML=room.players.map(p=>`<div class="player"><div class="avatar">${esc(initials(p.name))}</div><div class="name">${esc(p.name)}${p.id===me?" <span class='muted'>(você)</span>":""}</div>${p.id===room.hostId?`<span class="tag">HOST</span>`:""}</div>`).join("");
-  $("#hostAction").innerHTML=room.hostId===me?`<button class="btn primary" id="start">Iniciar jogo</button>`:`<p class="small muted center">Aguardando o host iniciar…</p>`;
-  $("#start")?.addEventListener("click",()=>socket.emit("room:start",{code:room.code},res=>{if(!res?.ok)alert(res?.error||"Erro")}));
-}
-function runCountdown(d){
-  show("countdown");
-  const tick=()=>{
-    const left=d.at-Date.now();
-    const n=Math.ceil(left/1000);
-    $("#count").textContent=n>0?n:"GO!";
-    $("#countSub").textContent=`RODADA ${d.round} DE ${d.totalRounds}`;
-    if(left<=0)clearInterval(countdownTimer);
-  };
-  clearInterval(countdownTimer);tick();countdownTimer=setInterval(tick,80);
-}
-function runRound(d){
-  show("game");
-  $("#round").textContent=`${d.round} / ${d.totalRounds}`;
-  const cover=d.trackForHost?.image||room?.results?.track?.image||"";
-  if(solo){
-    $("#cover").style.display="none";
-  }else{
-    $("#cover").style.display="block";
-    $("#cover").src=cover;
-    $("#cover").alt=cover?"Capa da rodada":"";
-  }
-  $("#options").innerHTML=d.options.map((o,i)=>`<button class="option" data-id="${o.id}"><span class="letter">${"ABCD"[i]}</span><span>${esc(o.label)}</span></button>`).join("");
-  $("#options").querySelectorAll(".option").forEach(b=>b.onclick=()=>answer(d,b));
-  clearInterval(roundTimer);
-  const tick=()=>{
-    const left=Math.max(0,d.endsAt-Math.max(Date.now(),d.startedAt));
-    $("#timer").textContent=`${Math.ceil(left/1000)}s`;
-    if(left<=0){
-      clearInterval(roundTimer);
-      $("#options").querySelectorAll("button").forEach(b=>b.disabled=true);
-      if(solo) finishSoloRound(null);
-    }
-  };
-  tick();roundTimer=setInterval(tick,100);
-  renderMiniRank();
-}
-function answer(d,b){
-  if(b.disabled)return;
-  $("#options").querySelectorAll("button").forEach(x=>x.disabled=true);
-  b.classList.add("selected");
-  if(solo){
-    finishSoloRound(b.dataset.id);
-    return;
-  }
-  socket.emit("answer",{code:room.code,round:d.round,optionId:b.dataset.id},res=>{if(!res?.ok)alert(res?.error||"Resposta não enviada")});
-}
-function renderMiniRank(){
-  const ps=(room?.players||[]).slice().sort((a,b)=>b.score-a.score);
-  $("#miniRank").innerHTML=ps.map((p,i)=>`<div class="rank ${p.id===me?"me":""}"><span>${i+1}</span><div class="avatar">${esc(initials(p.name))}</div><div>${esc(p.name)} ${p.streak>1?`<span class="streak">🔥x${p.streak}</span>`:""}</div><span class="score">${p.score}</span></div>`).join("");
-}
-function showResult(r){
-  clearInterval(roundTimer);show("result");
-  const resultsList=r.results?.results||[];
-  const meR=resultsList.find(x=>x.id===me);
-  $("#resultBox").innerHTML=`<div class="verdict">${meR?.correct?"Acertou! 🎯":"Errou 💔"}</div><div class="delta">${meR?`+${meR.delta} pontos${meR.streak>1?` · 🔥 sequência x${meR.streak}`:""}`:"Sem resposta"}</div><div class="track"><b>${esc(r.results?.track?.name||"")}</b><br>${esc(r.results?.track?.artists||"")}</div>`;
-  $("#resultRank").innerHTML=resultsList.map((p,i)=>`<div class="rank ${p.id===me?"me":""}"><span>#${i+1}</span><div class="avatar">${esc(initials(p.name))}</div><div>${esc(p.name)} ${p.streak>1?`<span class="streak">🔥x${p.streak}</span>`:""}</div><span class="score">${p.score}</span></div>`).join("");
-  $("#next").textContent=r.round<r.totalRounds?"Próxima rodada em instantes…":"Calculando pódio…";
-}
-function showPodium(r){
-  show("podiumScreen");
-  const ranking=(r.finalRanking||[]).slice();
-  const order=[1,0,2].filter(i=>ranking[i]);
-  $("#podium").innerHTML=order.map(i=>`<div class="pod ${i===0?"first":i===1?"second":"third"}"><div class="avatar" style="margin:auto">${esc(initials(ranking[i].name))}</div><div class="who">${esc(ranking[i].name)}</div><div class="pts">${ranking[i].score} pts</div><div class="bar">${i+1}</div></div>`).join("");
-  $("#finalRank").innerHTML=ranking.map((p,i)=>`<div class="rank ${p.id===me?"me":""}"><span>#${i+1}</span><div class="avatar">${esc(initials(p.name))}</div><div>${esc(p.name)}</div><span class="score">${p.score}</span></div>`).join("");
-  $("#again").style.display=room?.hostId===me?"block":"none";
-}
-async function createWithPlaylist(){
-  msg($("#createMsg"),"Ativando o player do host…","success");
-  const playerReady=await ensureSpotifyPlayer();
-  if(!playerReady){msg($("#createMsg"),`${spotifyPlayerError} O host precisa usar Spotify Premium para tocar trechos aleatórios de todas as músicas.`);return}
-  connectSocket();
-  const p=selectedPlaylist;
-  socket.emit("room:create",{name,playlist:p,tracks:p.tracks,totalRounds:selectedRounds},res=>{
-    if(!res?.ok){msg($("#createMsg"),res?.error||"Não foi possível criar.");return}
-    room=res.room;me=res.playerId;show("lobby");renderLobby();
-  });
-}
+async function loadDashboard(){message($("#dashboardMessage"),"Carregando sua biblioteca…","success");try{const [me,pls,tops]=await Promise.all([spotifyFetch("/me"),getMyPlaylists(),spotifyFetch("/me/top/artists?limit=20&time_range=medium_term").catch(()=>({items:[]}))]);profile=me;playlists=pls;artists=(tops.items||[]).map(a=>({id:a.id,name:a.name,image:a.images?.[0]?.url||"",subtitle:`${Number(a.followers?.total||0).toLocaleString("pt-BR")} seguidores`}));name=localStorage.getItem("sahurguess_name")||me.display_name||"Jogador";renderDashboard();message($("#dashboardMessage"),"")}catch(e){message($("#dashboardMessage"),e.message)}}
+async function getMyPlaylists(){const out=[];let url="/me/playlists?limit=50";while(url&&out.length<100){const d=await spotifyFetch(url);out.push(...(d.items||[]).filter(Boolean).map(p=>({id:p.id,name:p.name,image:p.images?.[0]?.url||"",subtitle:`${p.tracks?.total||0} músicas`,count:p.tracks?.total||0})));url=d.next?d.next.replace(API,""):null}return out}
+function renderDashboard(){const image=profile?.images?.[0]?.url||"";$("#profileName").textContent=(profile?.display_name||name).split(" ")[0].toUpperCase();$("#profileImage").src=image;$("#profileImage").style.display=image?"block":"none";$("#profileSheetImage").src=image;$("#profileSheetImage").style.display=image?"block":"none";$("#profileSheetName").textContent=profile?.display_name||name;$("#playerName").value=name;renderShelf($("#artistShelf"),artists.slice(0,10),"artist");renderShelf($("#playlistShelf"),playlists.slice(0,10),"playlist")}
+function renderShelf(el,items,kind){el.innerHTML=items.length?items.map(item=>`<button class="media-card" data-id="${esc(item.id)}" data-kind="${kind}"><div>${item.image?`<img src="${esc(item.image)}" alt="">`:`<span>♫</span>`}</div><b>${esc(item.name)}</b><small>${esc(item.subtitle||"")}</small></button>`).join(""):`<div class="empty-card">Nenhum item encontrado.</div>`;el.querySelectorAll(".media-card").forEach(b=>b.onclick=()=>quickPlay(kind,b.dataset.id))}
 
-$("#create").onclick=()=>{solo=false;resetCreateUI();show("createScreen")};
-$("#join").onclick=()=>{solo=false;show("joinScreen")};
-$("#solo").onclick=()=>{solo=true;resetCreateUI();show("createScreen")};
-document.querySelectorAll("[data-back]").forEach(x=>x.onclick=()=>{stopSoloSnippet();solo=false;show("home")});
-$("#connect").onclick=async()=>{
-  msg($("#createMsg"),"");
-  try{
-    if(!sessionStorage.getItem("sp_token")){await spotifyLogin();return}
-    $("#connect").disabled=true;$("#connect").innerHTML=`<span class="spinner"></span> buscando playlists`;
-    renderPlaylists(await getMyPlaylists());
-    $("#createRoom").textContent=solo?"Jogar solo":"Criar sala";$("#connect").style.display="none";
-  }catch(e){msg($("#createMsg"),e.message)}
-  finally{$("#connect").disabled=false}
-};
-document.querySelectorAll("[data-rounds]").forEach(button=>button.onclick=()=>{selectedRounds=Number(button.dataset.rounds);document.querySelectorAll("[data-rounds]").forEach(x=>x.classList.toggle("active",x===button))});
-$("#createRoom").onclick=()=>{
-  if(!selectedPlaylist){
-    msg($("#createMsg"),"Carregue a playlist antes de continuar.");
-    return;
-  }
-  if(solo){
-    startSoloGame();
-    return;
-  }
-  createWithPlaylist();
-};
-$("#roomCode").oninput=e=>e.target.value=e.target.value.replace(/\D/g,"").slice(0,6);
-$("#joinRoom").onclick=async()=>{
-  msg($("#joinMsg"),"");
-  const code=$("#roomCode").value;
-  if(!/^\d{6}$/.test(code)){msg($("#joinMsg"),"Digite o código de 6 números.");return}
-  if(!sessionStorage.getItem("sp_token")){await spotifyLogin({screen:"join",code});return}
-  $("#joinRoom").disabled=true;$("#joinRoom").innerHTML=`<span class="spinner"></span> ativando seu player`;
-  const playerReady=await ensureSpotifyPlayer();
-  if(!playerReady){msg($("#joinMsg"),`${spotifyPlayerError} Cada jogador precisa usar sua própria conta Spotify Premium autorizada.`);$("#joinRoom").disabled=false;$("#joinRoom").textContent="Tentar novamente";return}
-  connectSocket();
-  socket.emit("room:join",{code:$("#roomCode").value,name},res=>{
-    if(!res?.ok){msg($("#joinMsg"),res?.error||"Não foi possível entrar.");$("#joinRoom").disabled=false;$("#joinRoom").textContent="Entrar";return}
-    room=res.room;me=res.playerId;show("lobby");renderLobby();
-  });
-};
-$("#leave").onclick=()=>{stopSoloSnippet();if(room)socket?.emit("room:leave",{code:room.code});location.reload()};
-function logoutSpotify(){
-  stopSoloSnippet();
-  if(room)socket?.emit("room:leave",{code:room.code});
-  try{spotifyPlayer?.disconnect()}catch{}
-  spotifyPlayer=null;spotifyDeviceId="";spotifyPlayerError="";tokenState=null;
-  ["sp_token","sp_pkce_verifier","sp_state","sp_after_auth"].forEach(key=>sessionStorage.removeItem(key));
-  location.reload();
-}
-$("#homeLogout").onclick=logoutSpotify;
-$("#lobbyLogout").onclick=logoutSpotify;
-$("#exit").onclick=()=>location.reload();
-$("#again").onclick=()=>{if(solo){room.players[0].score=0;room.players[0].streak=0;soloState.used.clear();startSoloCountdown(1);return}socket.emit("room:restart",{code:room.code},res=>{if(!res?.ok)alert(res?.error||"Não foi possível reiniciar.")})};
+function openSheet(){$("#sheetBackdrop").hidden=false;requestAnimationFrame(()=>$("#modeSheet").classList.add("open"));$("#modeSheet").setAttribute("aria-hidden","false")}
+function closeSheet(){$("#modeSheet").classList.remove("open");$("#modeSheet").setAttribute("aria-hidden","true");setTimeout(()=>{$("#sheetBackdrop").hidden=true},250)}
+function openProfile(){closeSheet();$("#sheetBackdrop").hidden=false;requestAnimationFrame(()=>$("#profileSheet").classList.add("open"));$("#profileSheet").setAttribute("aria-hidden","false")}
+function closeProfile(){$("#profileSheet").classList.remove("open");$("#profileSheet").setAttribute("aria-hidden","true");setTimeout(()=>{$("#sheetBackdrop").hidden=true},250)}
+function quickPlay(kind,id){const list=kind==="artist"?artists:playlists;selectedSource=list.find(x=>x.id===id)||null;sourceKind=kind;openSheet()}
+function chooseMode(mode){playMode=mode;solo=mode==="solo";closeSheet();if(selectedSource){prepareSource(sourceKind,selectedSource);return}show("quizType")}
 
-if(document.modelContext?.registerTool){
-  const lifecycle=new AbortController();
-  Promise.resolve(document.modelContext.registerTool({
-    name:"open_join_room",title:"Abrir entrada de sala",description:"Abre a tela de entrada do SahurGuess e preenche um código de sala de 6 números.",
-    inputSchema:{type:"object",properties:{code:{type:"string",pattern:"^[0-9]{6}$"}},required:["code"],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},
-    execute(input){const code=String(input?.code||"");if(!/^\d{6}$/.test(code))throw new Error("O código precisa ter 6 números.");$("#roomCode").value=code;show("joinScreen");return {screen:"join",code}}
-  },{signal:lifecycle.signal})).catch(()=>{});
-}
+function openSourceList(kind){sourceKind=kind;if(kind==="liked"){prepareSource("liked",{id:"liked",name:"Músicas curtidas",image:"",subtitle:"Sua coleção salva"});return}const list=kind==="artist"?artists:playlists;$("#sourceTitle").textContent=kind==="artist"?"Escolha um artista":"Escolha uma playlist";$("#sourceList").innerHTML=list.map(item=>`<button class="source-row" data-id="${esc(item.id)}">${item.image?`<img src="${esc(item.image)}" alt="">`:`<span class="source-fallback">♫</span>`}<span><b>${esc(item.name)}</b><small>${esc(item.subtitle||"")}</small></span><i>›</i></button>`).join("");$("#sourceList").querySelectorAll("button").forEach(b=>b.onclick=()=>prepareSource(kind,list.find(x=>x.id===b.dataset.id)));show("sourceSelect")}
+async function prepareSource(kind,source){selectedSource=source;sourceKind=kind;show("ready");message($("#readyMessage"),"Preparando músicas…","success");$("#readyTitle").textContent=source.name;$("#readyDescription").textContent=kind==="artist"?`Quiz com músicas de ${source.name}`:kind==="liked"?"Quiz com suas músicas curtidas":`Quiz baseado na playlist “${source.name}”`;$("#readyImage").src=source.image||"";$("#readyImage").style.display=source.image?"block":"none";$("#readyFallback").style.display=source.image?"none":"grid";try{selectedTracks=kind==="playlist"?(await getPlaylist(source.id)).tracks:kind==="liked"?await getLikedTracks():await getArtistTracks(source.id);if(selectedTracks.length<4)throw new Error("São necessárias pelo menos quatro músicas disponíveis.");message($("#readyMessage"),`${selectedTracks.length} músicas prontas.`,"success")}catch(e){selectedTracks=[];message($("#readyMessage"),e.message)}}
+function normalizeTrack(t){return {id:t.id,name:t.name,artists:(t.artists||[]).map(a=>a.name).join(", "),album:t.album?.name||"",image:t.album?.images?.[0]?.url||"",uri:t.uri,previewUrl:t.preview_url||"",durationMs:t.duration_ms||0,spotifyUrl:t.external_urls?.spotify||""}}
+async function getPlaylist(id){const meta=await spotifyFetch(`/playlists/${encodeURIComponent(id)}?fields=id,name,images,external_urls`);const items=[];let url=`/playlists/${encodeURIComponent(id)}/items?limit=50&fields=items(item(id,name,artists(id,name),album(name,images),uri,preview_url,duration_ms,type,is_local,external_urls)),next`;while(url&&items.length<200){const d=await spotifyFetch(url);for(const x of d.items||[]){if(x.item?.type==="track"&&!x.item.is_local&&x.item.id)items.push(normalizeTrack(x.item))}url=d.next?d.next.replace(API,""):null}return {...meta,tracks:items}}
+async function getLikedTracks(){const items=[];let url="/me/tracks?limit=50";while(url&&items.length<200){const d=await spotifyFetch(url);for(const x of d.items||[]){if(x.track?.id)items.push(normalizeTrack(x.track))}url=d.next?d.next.replace(API,""):null}return items}
+async function getArtistTracks(id){try{const d=await spotifyFetch(`/artists/${encodeURIComponent(id)}/top-tracks`);const tracks=(d.tracks||[]).filter(t=>t.id).map(normalizeTrack);if(tracks.length>=4)return tracks}catch{}const d=await spotifyFetch("/me/top/tracks?limit=50&time_range=long_term");const tracks=(d.items||[]).filter(t=>t.id&&t.artists?.some(a=>a.id===id)).map(normalizeTrack);if(tracks.length<4)throw new Error("Não encontrei músicas suficientes desse artista na sua conta.");return tracks}
 
-(async()=>{
-  const params=new URLSearchParams(location.search);
-  const joinCode=params.get("room");
-  const authCode=params.get("code");
-  if(authCode && sessionStorage.getItem("sp_pkce_verifier")){
-    try{await exchangeCode(authCode)}catch(e){console.error(e)}
-  }
-  syncAuthUI();
-  const afterAuth=JSON.parse(sessionStorage.getItem("sp_after_auth")||"null");
-  if(afterAuth?.screen==="join"){sessionStorage.removeItem("sp_after_auth");$("#roomCode").value=String(afterAuth.code||"");$("#joinRoom").textContent="Ativar player e entrar";show("joinScreen");return}
-  if(joinCode){$("#roomCode").value=joinCode;show("joinScreen")}
-})();
+function loadSpotifySDK(){if(window.Spotify)return Promise.resolve();if(spotifySDKPromise)return spotifySDKPromise;spotifySDKPromise=new Promise((resolve,reject)=>{const script=document.createElement("script");script.src="https://sdk.scdn.co/spotify-player.js";script.async=true;window.onSpotifyWebPlaybackSDKReady=resolve;script.onerror=()=>reject(new Error("Falha ao carregar o player."));document.head.appendChild(script);setTimeout(()=>reject(new Error("O player demorou demais para responder.")),15000)});return spotifySDKPromise}
+async function ensureSpotifyPlayer(){if(spotifyPlayer&&spotifyDeviceId)return true;try{await loadSpotifySDK();await getToken();const player=new window.Spotify.Player({name:"SahurGuess",getOAuthToken:cb=>getToken().then(cb).catch(()=>cb("")),volume:.8});spotifyPlayer=player;const ready=new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error("O player não ficou pronto.")),15000);player.addListener("ready",({device_id})=>{clearTimeout(timeout);spotifyDeviceId=device_id;resolve(true)});player.addListener("not_ready",()=>spotifyDeviceId="");const fail=m=>{clearTimeout(timeout);reject(new Error(m))};player.addListener("initialization_error",({message})=>fail(message));player.addListener("authentication_error",({message})=>fail(message));player.addListener("account_error",()=>fail("Esta conta precisa ser Spotify Premium."));player.addListener("autoplay_failed",()=>spotifyPlayerError="Toque novamente em começar para liberar o áudio.")});if(!await player.connect())return false;if(player.activateElement)player.activateElement();await ready;return true}catch(e){spotifyPlayerError=e?.message||"Não foi possível iniciar o player.";return false}}
+async function pausePlayback(){if(!spotifyDeviceId)return;const command=spotifyCommandQueue.catch(()=>{}).then(()=>spotifyPlayer?.pause());spotifyCommandQueue=command.catch(()=>{});try{await command}catch{}}
+function stopAudio(){playbackNonce++;clearTimeout(audioStartTimer);clearTimeout(audioStopTimer);audioStartTimer=null;audioStopTimer=null;if(previewAudio){previewAudio.pause();previewAudio.src="";previewAudio=null}pausePlayback()}
+async function playTrack(track,positionMs=null,stopAt=null){const nonce=++playbackNonce;if(!track?.uri)return;const ready=await ensureSpotifyPlayer();if(!ready||nonce!==playbackNonce)return;const maxStart=Math.max(0,(Number(track.durationMs)||30000)-ROUND_MS);const position=Number.isFinite(positionMs)?Math.min(positionMs,maxStart):Math.floor(Math.random()*(maxStart+1));const command=spotifyCommandQueue.catch(()=>{}).then(async()=>{if(nonce!==playbackNonce)return false;if(spotifyPlayer)await spotifyPlayer.pause();if(nonce!==playbackNonce)return false;await spotifyFetch(`/me/player/play?device_id=${encodeURIComponent(spotifyDeviceId)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({uris:[track.uri],position_ms:position})});return nonce===playbackNonce});spotifyCommandQueue=command.catch(()=>{});try{if(!await command)return;const remaining=Number.isFinite(stopAt)?Math.max(0,stopAt-Date.now()):ROUND_MS;audioStopTimer=setTimeout(()=>{if(nonce===playbackNonce)pausePlayback()},remaining)}catch(e){spotifyPlayerError=e.message}}
+
+function buildQuestion(tracks,used){let pool=tracks.filter(t=>!used.has(t.id));if(!pool.length){used.clear();pool=[...tracks]}const correct=pool[Math.floor(Math.random()*pool.length)];used.add(correct.id);const all=shuffle([correct,...shuffle(tracks.filter(t=>t.id!==correct.id)).slice(0,3)]);return {correct,options:all.map((t,i)=>({id:String(i),label:t.name})),correctId:String(all.findIndex(t=>t.id===correct.id))}}
+async function beginReady(){if(selectedTracks.length<4){message($("#readyMessage"),"Aguarde as músicas terminarem de carregar.");return}message($("#readyMessage"),"Ativando seu player…","success");if(!await ensureSpotifyPlayer()){message($("#readyMessage"),spotifyPlayerError);return}gameHistory=[];if(playMode==="solo")startSolo();else createRoom()}
+function startSolo(){solo=true;me="solo";room={code:"SOLO",hostId:me,round:0,totalRounds:Math.min(selectedRounds,selectedTracks.length),playlist:{name:selectedSource.name,image:selectedSource.image},players:[{id:me,name,score:0,streak:0}],finalRanking:[]};soloState={tracks:selectedTracks.slice(0,200),used:new Set(),current:null,answered:false};startCountdown(1,FIRST_COUNTDOWN_MS,()=>startSoloRound(1))}
+function startCountdown(round,ms,next){stopAudio();const at=Date.now()+ms;show("countdown");clearInterval(countdownTimer);const tick=()=>{const left=at-Date.now();$("#count").textContent=Math.max(1,Math.ceil(left/1000));$("#countSub").textContent=`RODADA ${round} DE ${room.totalRounds}`;if(left<=0){clearInterval(countdownTimer);next?.()}};tick();countdownTimer=setInterval(tick,60)}
+function startSoloRound(round){const q=buildQuestion(soloState.tracks,soloState.used);const startedAt=Date.now()+1200,endsAt=startedAt+ROUND_MS;room.round=round;room.current={round,startedAt,endsAt,options:q.options};soloState.current={...q,round,startedAt,endsAt};soloState.answered=false;renderRound({round,totalRounds:room.totalRounds,startedAt,endsAt,options:q.options});audioStartTimer=setTimeout(()=>playTrack(q.correct,null,endsAt),Math.max(0,startedAt-Date.now()-650))}
+function renderRound(d){show("game");$("#gameMode").textContent=solo?"Quiz solo":"Quiz multiplayer";$("#round").textContent=`Faixa ${d.round} de ${d.totalRounds}`;$("#scoreValue").textContent=(room.players.find(p=>p.id===me)?.score||0);$("#progressDots").innerHTML=Array.from({length:d.totalRounds},(_,i)=>`<span class="${i<gameHistory.length?(gameHistory[i]?.correct?"correct":"wrong"):i===d.round-1?"current":""}"></span>`).join("");$("#options").innerHTML=d.options.map((o,i)=>`<button class="option" data-id="${o.id}"><span>${"ABCD"[i]}</span><b>${esc(o.label)}</b></button>`).join("");$("#options").querySelectorAll("button").forEach(b=>b.onclick=()=>submitAnswer(d,b));$("#scoreFloat").classList.remove("show");clearInterval(roundTimer);const tick=()=>{const now=Date.now();const left=now<d.startedAt?ROUND_MS:Math.max(0,d.endsAt-now);$("#timer").textContent=`${(left/1000).toFixed(1)}s`;const disabled=now<d.startedAt;$("#options").querySelectorAll("button").forEach(b=>{if(!b.classList.contains("answered"))b.disabled=disabled});if(left<=0){clearInterval(roundTimer);if(solo)finishSolo(null)}};tick();roundTimer=setInterval(tick,50);renderMiniRank()}
+function submitAnswer(d,button){if(button.disabled)return;$("#options").querySelectorAll("button").forEach(x=>{x.disabled=true;x.classList.add("answered")});button.classList.add("selected");if(solo)finishSolo(button.dataset.id);else socket.emit("answer",{code:room.code,round:d.round,optionId:button.dataset.id},res=>{if(!res?.ok)alert(res?.error||"Resposta não enviada")})}
+function finishSolo(optionId){if(!soloState?.current||soloState.answered)return;soloState.answered=true;clearInterval(roundTimer);stopAudio();const q=soloState.current,p=room.players[0],correct=optionId===q.correctId;const elapsed=Math.max(0,Math.min(ROUND_MS,Date.now()-q.startedAt));const delta=correct?Math.max(0,Math.round(100*(1-elapsed/ROUND_MS))):0;p.score+=delta;const history={...q.correct,correct,delta,positionMs:null};gameHistory.push(history);$("#scoreValue").textContent=p.score;const selected=$("#options [data-id='${optionId}']");if(selected)selected.classList.add(correct?"correct":"wrong");const right=$("#options [data-id='${q.correctId}']");right?.classList.add("correct");$("#scoreFloat").textContent=correct?`+${delta}`:"Errou";$("#scoreFloat").classList.add("show");setTimeout(()=>{if(room.round>=room.totalRounds){room.finalRanking=[{id:me,name,score:p.score}];showFinal(room)}else startSoloRound(room.round+1)},850)}
+function renderMiniRank(){const el=$("#miniRank");if(solo){el.innerHTML="";return}const sorted=[...(room?.players||[])].sort((a,b)=>b.score-a.score);el.innerHTML=sorted.slice(0,4).map((p,i)=>`<div><span>#${i+1} ${esc(p.name)}</span><b>${p.score}</b></div>`).join("")}
+
+function connectSocket(){if(socket?.connected)return;socket=io(SERVER_URL,{transports:["websocket","polling"]});socket.on("room:update",r=>{room=r;renderLobby()});socket.on("room:countdown",d=>startCountdown(d.round,Math.max(0,d.at-Date.now())));socket.on("room:round",d=>{room.round=d.round;room.current=d;renderRound(d)});socket.on("room:track",d=>{audioStartTimer=setTimeout(()=>playTrack(d.track,d.positionMs,d.endsAt),Math.max(0,d.startedAt-Date.now()-650))});socket.on("room:result",r=>{stopAudio();room=r;recordMultiResult(r);showMultiResult(r)});socket.on("room:finished",r=>{stopAudio();room=r;showFinal(r)});socket.on("room:closed",d=>{alert(d.message);goHome()})}
+function createRoom(){solo=false;connectSocket();socket.emit("room:create",{name,playlist:selectedSource,tracks:selectedTracks,totalRounds:selectedRounds},res=>{if(!res?.ok){message($("#readyMessage"),res?.error||"Não foi possível criar a sala.");return}room=res.room;me=res.playerId;show("lobby");renderLobby()})}
+async function joinRoom(){const code=$("#joinCode").value.replace(/\D/g,"");if(code.length!==6){message($("#joinMessage"),"Digite os 6 números.");return}$("#joinButton").disabled=true;$("#joinButton").textContent="Ativando…";if(!await ensureSpotifyPlayer()){message($("#joinMessage"),spotifyPlayerError);$("#joinButton").disabled=false;$("#joinButton").textContent="Entrar";return}solo=false;closeSheet();connectSocket();socket.emit("room:join",{code,name},res=>{if(!res?.ok){openSheet();message($("#joinMessage"),res?.error||"Sala não encontrada.");$("#joinButton").disabled=false;$("#joinButton").textContent="Entrar";return}room=res.room;me=res.playerId;show("lobby");renderLobby()})}
+function renderLobby(){if(!room)return;$("#roomCodeDisplay").textContent=room.code;$("#lobbyPlaylist").innerHTML=`<div class="selected-summary">${room.playlist.image?`<img src="${esc(room.playlist.image)}" alt="">`:""}<div><small>QUIZ SELECIONADO</small><b>${esc(room.playlist.name)}</b><span>${room.totalRounds} rodadas</span></div></div>`;$("#players").innerHTML=room.players.map(p=>`<div class="player"><span>${esc(initials(p.name))}</span><b>${esc(p.name)}${p.id===me?" (você)":""}</b>${p.id===room.hostId?"<i>HOST</i>":""}</div>`).join("");$("#hostAction").innerHTML=room.hostId===me?`<button class="main-button" id="startRoom">▶ Iniciar jogo</button>`:`<p class="waiting">Aguardando o host iniciar…</p>`;$("#startRoom")?.addEventListener("click",()=>socket.emit("room:start",{code:room.code},res=>{if(!res?.ok)alert(res.error)}))}
+function recordMultiResult(r){const mine=r.results?.results?.find(x=>x.id===me);gameHistory.push({...r.results.track,correct:Boolean(mine?.correct),delta:mine?.delta||0})}
+function showMultiResult(r){const mine=r.results?.results?.find(x=>x.id===me);if(mine)$("#scoreValue").textContent=mine.score;$("#scoreFloat").textContent=mine?.correct?`+${mine.delta}`:"Errou";$("#scoreFloat").classList.add("show");const right=$("#options [data-id='${r.results?.correctId}']");right?.classList.add("correct");renderMiniRank()}
+function showFinal(r){clearInterval(roundTimer);show("finalScreen");const score=(r.players||[]).find(p=>p.id===me)?.score||r.finalRanking?.find(p=>p.id===me)?.score||0;$("#finalScore").textContent=score;$("#finalMaximum").textContent=`/ ${r.totalRounds*100}`;$("#songHistory").innerHTML=gameHistory.map((t,i)=>`<article class="song-row"><strong class="answer-mark ${t.correct?"yes":"no"}">${t.correct?"✓":"×"}</strong>${t.image?`<img src="${esc(t.image)}" alt="">`:`<span class="song-cover">♫</span>`}<div><b>${esc(t.name)}</b><small>${esc(t.artists)}</small></div><button data-replay="${i}" aria-label="Tocar novamente">▶</button></article>`).join("");$("#songHistory").querySelectorAll("[data-replay]").forEach(b=>b.onclick=()=>playTrack(gameHistory[Number(b.dataset.replay)]));const ranking=r.finalRanking||[];$("#finalRankingWrap").style.display=solo?"none":"block";$("#finalRank").innerHTML=ranking.map((p,i)=>`<div class="rank-row"><span>#${i+1}</span><b>${esc(p.name)}</b><strong>${p.score}</strong></div>`).join("")}
+
+function logout(){stopAudio();if(room&&socket)socket.emit("room:leave",{code:room.code});try{spotifyPlayer?.disconnect()}catch{}["sp_token","sp_pkce_verifier","sp_state","sp_after_auth"].forEach(k=>sessionStorage.removeItem(k));location.reload()}
+function leave(){stopAudio();if(room&&socket)socket.emit("room:leave",{code:room.code});room=null;me=null;goHome()}
+function goHome(){stopAudio();selectedSource=null;selectedTracks=[];gameHistory=[];show("dashboard")}
+
+$("#loginButton").onclick=()=>spotifyLogin().catch(e=>alert(e.message));$("#openPlay").onclick=()=>{selectedSource=null;openSheet()};$("#closeSheet").onclick=closeSheet;$("#sheetBackdrop").onclick=()=>{$("#profileSheet").classList.contains("open")?closeProfile():closeSheet()};$("#chooseSolo").onclick=()=>chooseMode("solo");$("#chooseMulti").onclick=()=>chooseMode("multi");$("#joinButton").onclick=joinRoom;$("#joinCode").oninput=e=>e.target.value=e.target.value.replace(/\D/g,"").slice(0,6);$("#profileButton").onclick=openProfile;$("#navProfile").onclick=openProfile;$("#closeProfile").onclick=closeProfile;$("#logoutButton").onclick=logout;$("#playerName").oninput=e=>{name=e.target.value.slice(0,16)||"Jogador";localStorage.setItem("sahurguess_name",name)};document.querySelectorAll("[data-open-list]").forEach(b=>b.onclick=()=>{playMode="solo";solo=true;openSourceList(b.dataset.openList)});document.querySelectorAll("[data-kind]").forEach(b=>b.onclick=()=>openSourceList(b.dataset.kind));document.querySelectorAll("[data-back]").forEach(b=>b.onclick=()=>show(b.dataset.back));document.querySelectorAll("[data-round]").forEach(b=>b.onclick=()=>{selectedRounds=Number(b.dataset.round);document.querySelectorAll("[data-round]").forEach(x=>x.classList.toggle("active",x===b))});$("#readyPlay").onclick=beginReady;$("#leaveRoom").onclick=leave;$("#lobbyLogout").onclick=logout;$("#gameExit").onclick=leave;$("#finalHome").onclick=goHome;$("#homeAgain").onclick=goHome;$("#playAgain").onclick=()=>{if(selectedSource&&selectedTracks.length)show("ready");else goHome()};
+
+(async()=>{const params=new URLSearchParams(location.search);if(params.get("code")&&sessionStorage.getItem("sp_pkce_verifier")){try{await exchangeCode(params.get("code"))}catch(e){sessionStorage.clear();show("login");alert(e.message);return}}if(!hasSession()){show("login");return}show("dashboard");await loadDashboard()})();

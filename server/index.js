@@ -188,7 +188,7 @@ function startRound(c) {
   const snippetMs=15000;
   const maxStart=Math.max(0,(Number(correct.durationMs)||30000)-snippetMs);
   const positionMs=crypto.randomInt(maxStart+1);
-  io.to(c).emit("room:track",{round:room.round,startedAt,positionMs,track:{uri:correct.uri,durationMs:correct.durationMs}});
+  io.to(c).emit("room:track",{round:room.round,startedAt,endsAt,positionMs,track:{uri:correct.uri,durationMs:correct.durationMs}});
   const scheduledRound=room.round;
   room.roundTimer=setTimeout(()=>endRound(c,scheduledRound),16600);
 }
