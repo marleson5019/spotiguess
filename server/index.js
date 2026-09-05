@@ -94,6 +94,16 @@ io.on("connection", socket => {
     io.to(c).emit("room:update",publicRoom(room));
   });
 
+  socket.on("room:settings", (payload, cb) => {
+    const room = rooms.get(payload?.code);
+    if (!room || room.hostId !== socket.id) return cb?.({ok:false,error:"Somente o host pode alterar a sala."});
+    if (room.status !== "lobby") return cb?.({ok:false,error:"A partida já começou."});
+    room.totalRounds=Math.max(1,Math.min(Number(payload?.totalRounds)||10,20,room.tracks.length));
+    room.updatedAt=Date.now();
+    cb?.({ok:true,room:publicRoom(room)});
+    io.to(room.code).emit("room:update",publicRoom(room));
+  });
+
   socket.on("room:start", (payload, cb) => {
     const room = rooms.get(payload?.code);
     if (!room || room.hostId !== socket.id) return cb?.({ok:false,error:"Somente o host pode iniciar."});
