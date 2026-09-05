@@ -11,7 +11,7 @@ const app=document.querySelector("#app");
 app.innerHTML=`
 <div class="app">
 <section class="screen active" id="home">
-  <div class="logo"><div class="disc"></div><span>Sahur<b>Guess</b></span></div>
+  <div class="brand-row"><div class="logo"><div class="disc"></div><span>Sahur<b>Guess</b></span></div><button class="logout" id="homeLogout" type="button" hidden>Desconectar</button></div>
   <div class="intro"><span class="eyebrow">OUÇA. ADIVINHE. VENÇA.</span><h1>Você conhece mesmo<br>as suas playlists?</h1><p>Conecte o Spotify, escolha uma playlist e dispute cada segundo.</p></div>
   <label>SEU NOME</label>
   <div class="namebox"><div class="avatar" id="avatar">?</div><input id="name" maxlength="16" placeholder="Como podemos te chamar?"></div>
@@ -41,7 +41,7 @@ app.innerHTML=`
 </section>
 
 <section class="screen" id="lobby">
-  <div class="top"><span class="back" id="leave">← sair</span><span class="muted small">LOBBY</span></div>
+  <div class="top"><span class="back" id="leave">← sair</span><button class="logout" id="lobbyLogout" type="button">Desconectar Spotify</button></div>
   <div class="center"><span class="eyebrow">CÓDIGO</span><div class="code" id="code"></div></div>
   <div id="lobbyPlaylist"></div><label>JOGADORES</label><div class="players" id="players"></div>
   <div class="spacer"></div><div id="hostAction"></div><p class="small muted center">Compartilhe o código com seus amigos.</p>
@@ -74,6 +74,7 @@ const screens=["home","createScreen","joinScreen","lobby","countdown","game","re
 function show(id){screens.forEach(x=>$("#"+x).classList.toggle("active",x===id))}
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function initials(s){return (s||"?").trim().slice(0,2).toUpperCase()}
+function syncAuthUI(){$("#homeLogout").hidden=!sessionStorage.getItem("sp_token")}
 let name=localStorage.getItem("spotiguess_name")||"Jogador"+Math.floor(Math.random()*900+100);
 $("#name").value=name; $("#avatar").textContent=initials(name);
 $("#name").oninput=e=>{name=e.target.value.slice(0,16);$("#avatar").textContent=initials(name);localStorage.setItem("spotiguess_name",name)}
@@ -603,6 +604,16 @@ $("#joinRoom").onclick=async()=>{
   });
 };
 $("#leave").onclick=()=>{stopSoloSnippet();if(room)socket?.emit("room:leave",{code:room.code});location.reload()};
+function logoutSpotify(){
+  stopSoloSnippet();
+  if(room)socket?.emit("room:leave",{code:room.code});
+  try{spotifyPlayer?.disconnect()}catch{}
+  spotifyPlayer=null;spotifyDeviceId="";spotifyPlayerError="";tokenState=null;
+  ["sp_token","sp_pkce_verifier","sp_state","sp_after_auth"].forEach(key=>sessionStorage.removeItem(key));
+  location.reload();
+}
+$("#homeLogout").onclick=logoutSpotify;
+$("#lobbyLogout").onclick=logoutSpotify;
 $("#exit").onclick=()=>location.reload();
 $("#again").onclick=()=>{if(solo){room.players[0].score=0;room.players[0].streak=0;soloState.used.clear();startSoloCountdown(1);return}socket.emit("room:restart",{code:room.code},res=>{if(!res?.ok)alert(res?.error||"Não foi possível reiniciar.")})};
 
@@ -622,6 +633,7 @@ if(document.modelContext?.registerTool){
   if(authCode && sessionStorage.getItem("sp_pkce_verifier")){
     try{await exchangeCode(authCode)}catch(e){console.error(e)}
   }
+  syncAuthUI();
   const afterAuth=JSON.parse(sessionStorage.getItem("sp_after_auth")||"null");
   if(afterAuth?.screen==="join"){sessionStorage.removeItem("sp_after_auth");$("#roomCode").value=String(afterAuth.code||"");$("#joinRoom").textContent="Ativar player e entrar";show("joinScreen");return}
   if(joinCode){$("#roomCode").value=joinCode;show("joinScreen")}

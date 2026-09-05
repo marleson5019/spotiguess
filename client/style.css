@@ -11,7 +11,7 @@ body{min-height:100dvh}
 .screen{display:none;min-height:calc(100dvh - 48px);flex-direction:column;animation:in .25s ease}
 .screen.active{display:flex}
 @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.logo{display:flex;align-items:center;gap:10px;margin:12px 0 26px}
+.brand-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0 26px}.logo{display:flex;align-items:center;gap:10px;margin:0}
 .disc{width:40px;height:40px;border-radius:50%;background:conic-gradient(var(--lime),#273043,var(--lime));position:relative}
 .disc:after{content:"";position:absolute;width:12px;height:12px;background:var(--bg);border-radius:50%;inset:0;margin:auto}
 .logo b{color:var(--lime)}
@@ -38,6 +38,7 @@ input:focus{border-color:var(--lime)}
 .btn:disabled{opacity:.45}
 .top{display:flex;justify-content:space-between;align-items:center;margin-bottom:25px}
 .back{color:var(--muted);font-weight:800;cursor:pointer}
+.logout{border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:11px;padding:8px 10px;font-size:12px;font-weight:800;cursor:pointer}.logout:hover{border-color:var(--pink);color:var(--text)}.logout[hidden]{display:none}
 .hint{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 0 16px}
 .hint a{color:var(--lime)}
 .error{background:#ff3d8117;border:1px solid #ff3d8155;color:#ffabc5;padding:12px;border-radius:13px;font-size:13px;line-height:1.45;margin-bottom:12px}
